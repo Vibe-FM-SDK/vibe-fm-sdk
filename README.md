@@ -18,7 +18,7 @@ WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your
 |---|---|
 | **Zig 0.13.0** | its clang compiles C to WebAssembly – nothing else to install. Download: <https://ziglang.org/download/#release-0.13.0>, unpack, put `zig` on your PATH (or set `ZIG=/path/to/zig`). |
 | **VIBE FM VST 0.3** | the host you test in, free: <https://thefirmwarehub.com/convert> (macOS, Windows, Linux). |
-| **The native firmwares** *(to look at)* | what this SDK makes, playable in the browser: OberVave 3, VOX, PLAYER … <https://thefirmwarehub.com/native/> – install VIBE FM VST and they are in it, the Editor included. |
+| **The native firmwares** *(to look at)* | what this SDK makes: OberVave 3 (VOX coming soon) – <https://thefirmwarehub.com/native/>. OberVave 3 comes with VIBE FM VST, the Editor included. |
 | a shell | macOS / Linux: the terminal. Windows: Git Bash or WSL (`tools/build.sh` is a plain `sh` script). |
 | Node.js 18+ *(optional)* | for `tools/vibe-check.mjs` and `tools/wasmtest.mjs` (testing without a DAW). |
 
