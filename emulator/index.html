@@ -30,6 +30,7 @@
     <select id="midiout" aria-label="MIDI out" title="SDK 9: where the firmware's MIDI out goes (notes, clock) – a port, or off"><option value="">MIDI out: off</option></select>
     <button type="button" id="tb-setup" class="wide" title="Set up a controller: walks you through every VIBE control, you move the matching one on your controller">Setup</button>
     <button type="button" id="tb-learn" class="wide" title="MIDI learn: tap a VIBE control, then move one on your controller. Shift+click clears all mappings">Learn</button>
+    <button type="button" id="tb-profile" class="wide" title="Save what Setup / Learn mapped as a controller profile (a .json file) – the same file works on the VIBE and in the plugin">Profile ↓</button>
     <button type="button" id="tb-cheat" title="Cheat sheet of the running firmware, right of the device">Cheat sheet</button>
     <button type="button" id="tb-help">Help</button>
     <label class="viewsel" title="Editor: every parameter at once · Full: the whole device · Rack: the device without keys and pads, the display bigger · Display: just the screen, pixel-exact">View
@@ -104,6 +105,7 @@
       <ul>
         <li><b>Launchpad Mini MK3</b>: top left 4×4 = pads, top right = PLAY/STOP/REC/HOME and the six keys, bottom two octaves of keys, lights as on the device.</li>
         <li><b>MPK mini IV / MK3</b> (any preset, DAW too): K1–K4 = encoders 1–4, K5 = DATA, K6 = volume, K7 = A, K8 = B; pads = pads 1–8, bank B = 9–16; keys, pitch/mod wheel and sustain pedal go to the firmware. Buttons (only in the <b>DAW preset</b>): − / + step through the colour keys, MIXER, TRACKS, GLOBAL and MENU; TAP TEMPO = the chosen one again (pages through its area); Stop/Play = PLAY, Loop = STOP, Record = REC, Undo = HOME, Overdub = ENTER, SHIFT = SHIFT, push encoder = DATA. Black keys wrong? The MPK's Scales mode is on (SHIFT+pad 7 turns it off). Map it differently: <b>Setup</b>.</li>
+        <li><b>Any controller:</b> <b>Setup</b> walks you through it, <b>Profile ↓</b> saves the result as a controller profile – the same file works on the VIBE and in the plugin. With FOCUS, one knob with a push (DATA + ENTER) and HOME reach everything.</li>
         <li><b>MIDI channel</b> (top bar): "all" passes every channel to the firmware; channel 1–16 only that one. Pads on channel 10 and the controller mappings (MPK, Launchpad, learned) always apply.</li>
         <li><b>BeatStep Pro</b> &amp; co.: drum pads (channel 10) = pads; knobs with <b>Learn</b>: tap a VIBE control, move one on the controller.</li>
       </ul>

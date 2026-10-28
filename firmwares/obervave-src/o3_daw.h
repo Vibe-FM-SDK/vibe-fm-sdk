@@ -90,6 +90,52 @@ static void daw_add(uint32_t t, uint32_t p, const char *legacy)
     DAW_N++;
 }
 
+/* SDK 11 (Protokoll 7.2a): the MIXER as parameters with the fixed ids – mix_1_level … mix_4_solo, mix_select – after all
+ * the others (their numbers stay): a mixer controller (Mackie Control, the SMC-Mixer) or the DAW moves the tracks' levels,
+ * pans, mutes and solos and picks the track; what the panel does goes back (daw_sync). 28.10.2026. */
+#define MIX_W 4
+static int MIX_BASE = -1;
+static char mix_id[NTRK * MIX_W + 1][16], mix_nm[NTRK * MIX_W + 1][16];
+static void mix_params(void)
+{
+    static const char *const W[MIX_W] = {"level", "pan", "mute", "solo"}, *const WN[MIX_W] = {"Level", "Pan", "Mute", "Solo"};
+    static const char *const G[MIX_W] = {"MIX \xc2\xb7 LEVEL", "MIX \xc2\xb7 PAN", "MIX \xc2\xb7 MUTE", "MIX \xc2\xb7 SOLO"};
+    static const char *const ONOFF[2] = {"OFF", "ON"}, *const TRK[NTRK] = {"A", "B", "C", "D"};
+    MIX_BASE = DAW_N;
+    for (uint32_t t = 0; t < NTRK; t++)
+        for (uint32_t w = 0; w < MIX_W; w++) {
+            int j = DAW_N, k = 0;
+            char *s = mix_id[t * MIX_W + w], *n = mix_nm[t * MIX_W + w];
+            if (j >= DAW_MAX) return;
+            scopy(s, "mix_", 16); s[4] = (char)('1' + t); s[5] = '_'; scopy(s + 6, W[w], 10);
+            n[k++] = (char)('A' + t); n[k++] = ' '; scopy(n + k, WN[w], 14);
+            daw_list[j].id = s; daw_list[j].name = n; daw_list[j].unit = "";
+            daw_list[j].min = w == 1u ? -1.0f : 0.0f; daw_list[j].max = 1.0f;
+            daw_list[j].steps = w >= 2u ? 2 : 0; daw_list[j].choices = w >= 2u ? ONOFF : 0;
+            daw_list[j].def = w == 0u ? 100.0f / 127.0f : 0.0f;
+            daw_grp[j] = G[w]; DAW_N++;
+        }
+    if (DAW_N >= DAW_MAX) return;
+    daw_list[DAW_N] = (vibe_param){"mix_select", "Track", 1.0f, (float)NTRK, 1.0f, "", NTRK, TRK};
+    daw_grp[DAW_N] = "MIX \xc2\xb7 TRACK"; DAW_N++;
+}
+static float mix_of(int k)                      /* (k: 0 .. NTRK * MIX_W, the last = the track) */
+{
+    uint32_t t = (uint32_t)k / MIX_W, w = (uint32_t)k % MIX_W;
+    if (k == NTRK * MIX_W) return (float)(sel + 1u);
+    if (w == 0u) return set.mix_lvl[t] / 127.0f;
+    if (w == 1u) return set.mix_pan[t] / 64.0f;
+    return (float)(((w == 2u ? set.mix_mute : set.mix_solo) >> t) & 1u);
+}
+static void mix_from_host(int k, float v)
+{
+    uint32_t t = (uint32_t)k / MIX_W, w = (uint32_t)k % MIX_W;
+    if (k == NTRK * MIX_W) { int32_t n = clampi((int32_t)(v + 0.5f), 1, NTRK) - 1; trk_select((uint32_t)n); return; }
+    if (w == 0u) set.mix_lvl[t] = (uint8_t)clampi((int32_t)(v * 127.0f + 0.5f), 0, 127);
+    else if (w == 1u) set.mix_pan[t] = (int8_t)clampi((int32_t)(v * 64.0f + (v < 0 ? -0.5f : 0.5f)), -64, 64);
+    else { uint8_t *m = w == 2u ? &set.mix_mute : &set.mix_solo; if (v >= 0.5f) *m |= (uint8_t)(1u << t); else *m &= (uint8_t)~(1u << t); }
+    mix_apply(); set_touch();
+}
 static void daw_init(void)                      /* (after the tracks' sounds are loaded) */
 {
     uint32_t t, k, p;
@@ -104,6 +150,7 @@ static void daw_init(void)                      /* (after the tracks' sounds are
             if (!legacy) daw_add(t, p, 0);
         }
     for (p = 0; p < NPARAM; p++) if (is_a_only(p)) daw_add(0, p, 0);   /* the effects, once */
+    mix_params();                                /* (SDK 11: the mixer, after everything else) */
     vibe_params(daw_list, DAW_N);
     vibe_param_groups(daw_grp);
 }
@@ -163,7 +210,7 @@ static void daw_editor(void)
         n++;
     }
     vibe_editor_cards(ed_cards, n);
-    for (j = 0; j < DAW_N; j++) {
+    for (j = 0; j < (MIX_BASE >= 0 ? MIX_BASE : DAW_N); j++) {
         uint32_t p = daw_pi[j], kind = PDEF[p].kind;
         if (kind == K_BIP || kind == K_SEMI) vibe_editor_control(j, VIBE_CTL_BIPOLAR);
         else if (kind == K_ONOFF) vibe_editor_control(j, VIBE_CTL_TOGGLE);
@@ -179,6 +226,11 @@ static void daw_editor(void)
         default: break;
         }
     }
+    if (MIX_BASE >= 0) for (j = MIX_BASE; j < DAW_N; j++) {   /* (SDK 11: the mixer – pans from the middle, mutes and solos as switches) */
+        int k = j - MIX_BASE;
+        if (k < NTRK * MIX_W && k % MIX_W == 1) vibe_editor_control(j, VIBE_CTL_BIPOLAR);
+        else if (k < NTRK * MIX_W && k % MIX_W >= 2) vibe_editor_control(j, VIBE_CTL_TOGGLE);
+    }
     vibe_editor_accent(0xFF6A1A);               /* (ACCENT, o3_draw.h) */
     for (uint32_t t = 0; t < NTRK; t++) vibe_editor_tab_color(ED_TAB[t], TRK_RGB[t]);
     vibe_editor_tab_color(ED_TAB[NTRK], 0x3FA9F5);   /* (the FX key's blue) */
@@ -193,6 +245,7 @@ static void daw_from_host(uint32_t j, float v)
     uint32_t t, p;
     int32_t x;
     if (j >= (uint32_t)DAW_N) return;
+    if (MIX_BASE >= 0 && j >= (uint32_t)MIX_BASE) { mix_from_host((int)j - MIX_BASE, v); return; }
     t = daw_t[j]; p = daw_pi[j];
     x = clampi((int32_t)(v + daw_off(p) + 0.5f), 0, PDEF[p].max);   /* (0..max here: rounds up from .5) */
     if (live_p[t].v[p] == x) return;
@@ -205,7 +258,7 @@ static void daw_sync(void)
 {
     int j;
     for (j = 0; j < DAW_N; j++) {
-        float v = daw_of(daw_t[j], daw_pi[j]);
+        float v = MIX_BASE >= 0 && j >= MIX_BASE ? mix_of(j - MIX_BASE) : daw_of(daw_t[j], daw_pi[j]);
         if (vibe_param_get(j) != v) vibe_param_set(j, v);
     }
 }

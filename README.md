@@ -146,6 +146,13 @@ Every control on the display reachable with **one knob and one button** (DATA + 
 firmware, so the VIBE can be played from the smallest controller. About ten lines in your firmware: `AGENTS.md`
 ("SDK 10"), `sdk/include/vibe_gfx.h` (`vf_*`). Nothing new for a host: it runs in every VIBE FM VST.
 
+## New in SDK 11: the mixer, and controller profiles
+
+A firmware with tracks reports its mixer as parameters with fixed ids (`mix_1_level`, `mix_1_mute`, …, `mix_select`).
+Then any mixer controller and the DAW work its tracks, with no controller code in the firmware. Controllers themselves
+are described by small JSON **profiles** in `controllers/`, which the host applies. Make one in the emulator (Setup, then
+Profile ↓) and send it to us. Both are explained in **`CONTROLLERS.md`**.
+
 ## Updates
 
 This repository is where the SDK grows: `git pull` brings new versions, the **issues** are the place for questions,
@@ -217,7 +224,7 @@ always added, never taken away).
 - **The VIBE FM Protocol specification** in English (the rules behind `vibe-check`, the two-flows mode).
 - A **device CPU budget** in `vibe-check`, measured on the hardware.
 
-Not in SDK 10 yet – tell us if you need one of these first:
+Not in SDK 11 yet – tell us if you need one of these first:
 
 - **More than one stereo output to the DAW** (each track on its own channel; today: stereo out, dual mono and the Cue).
 - **Reporting your own latency** to the DAW (a look-ahead limiter, for instance).

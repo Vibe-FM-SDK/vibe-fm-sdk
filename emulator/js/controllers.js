@@ -35,8 +35,23 @@ const isMpk = (name) => /MPK ?mini/i.test(name || '');
 // and transport data for Akai's software – nothing a firmware should hear
 const isSidePort = (name) => isMpk(name) && /Plugin|Software|Control|DIN|MIDI [3-9]\b/i.test(name || '');
 const isDawPort = (name) => isMpk(name) && /DAW|MIDI 2\b/i.test(name || '');
-const MPK_TARGETS = [[ENC.E1, 'Encoder 1'], [ENC.E2, 'Encoder 2'], [ENC.E3, 'Encoder 3'], [ENC.E4, 'Encoder 4'], [ENC.DATA, 'DATA'], ['volume', 'VOLUME'], [ENC.A, 'Encoder A'], [ENC.B, 'Encoder B']];   // Sven 17.10.: K7/K8 = A/B (over the transport)
-const MPK_CC0 = [24, 70];   // K1 = CC 24 (MPK mini IV, all presets) or CC 70 (MK3 factory)
+// controller profiles (VIBE FM Protokoll 15a, 28.10.2026): controllers.json = the SDK's controllers/*.json. A profile maps a
+// controller's CCs / notes to VIBE controls; the same file works on the VIBE, in the plugin and here. What is learned here
+// (Setup, Learn) is exported in the same format ("Profile ↓").
+const ENC_ID = { 1: ENC.E1, 2: ENC.E2, 3: ENC.E3, 4: ENC.E4, A: ENC.A, B: ENC.B, DATA: ENC.DATA };
+const ENC_NAME = ['1', '2', '3', '4', 'A', 'B', 'DATA'];
+const BTN_NAME = Object.keys(BTN).filter((k) => k !== 'COUNT');
+function binding(e) {   // a profile's entry -> what generic() sends
+  const label = e.label || (e.to + (e.id !== undefined ? ' ' + e.id : ''));
+  if (e.to === 'encoder' && ENC_ID[e.id] !== undefined) return { type: EV.ENCODER, id: ENC_ID[e.id], label, preset: true };
+  if (e.to === 'button' && BTN[e.id] !== undefined) return { type: EV.BUTTON, id: BTN[e.id], label, hold: e.id === 'SHIFT', preset: true };
+  if (e.to === 'pad' && e.id >= 1 && e.id <= 16) return { type: EV.PAD, id: e.id - 1, label, preset: true };
+  if (e.to === 'volume') return { type: 'volume', label: 'VOLUME', preset: true };
+  if (e.to === 'area') return { type: 'cycle', dir: e.dir || 0, label, preset: true };
+  if (e.to === 'library') return { type: 'library', label: 'firmware library', preset: true };
+  if (e.to === 'mix') return { type: 'mix', what: e.what, track: e.track, label: 'mix ' + (e.track ? e.track + ' ' : '') + e.what, preset: true };
+  return null;
+}
 const REL2C = (v) => (v >= 1 && v <= 15) || (v >= 113 && v <= 127);   // relative, two's complement: 1 = +1, 127 = -1
 const REL64 = (v) => v >= 57 && v <= 71 && v !== 64;                   // relative around 64: 63 = -1, 65 = +1
 
@@ -53,6 +68,13 @@ export class Controllers {
     this.onVolume = null; this.getVolume = null; this.hist = new Map();   // VOLUME via a controller knob (0..1); knob value history
     this.releases = new Set(['MPK:17']); this.tapT = new Map(); this.autoHeld = new Set(); this.mirror = new Map();   // CC buttons seen releasing; self-releases; port mirroring
     window.addEventListener('beforeunload', () => this.lpMode(0));
+    this.profiles = []; this.onLibrary = null; this.onParam = null;
+    this.mix = new Map(); this.mixv = []; this.pick = new Map(); this.ledSent = new Map(); this.faderT = new Map();
+    fetch('controllers.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : [])).then((p) => { this.profiles = Array.isArray(p) ? p : []; if (this.access) this.wire(); }).catch(() => {});
+  }
+  profileOf(dev) {   // the first profile whose "match" is part of the port's name
+    const d = (dev || '').toLowerCase();
+    return this.profiles.find((p) => (p.match || []).some((m) => d.includes(String(m).toLowerCase()))) || null;
   }
 
   async connect() {
@@ -96,9 +118,11 @@ export class Controllers {
       if (isMpk(i.name)) mpk = true;
     });
     this.hasMpk = mpk; this.claim();
+    const unknown = names.filter((n) => !isLaunchpad(n) && !this.profileOf(n) && !Object.keys(this.bind).some((k) => k.startsWith(n + '|')));
     if (this.lpOut) { this.lpMode(1); this.lpState.clear(); }
     this.status(debug ? 'MIDI-Ports: ' + all.join(' · ') : names.length ? 'MIDI: ' + names.filter((n) => !/DAW/i.test(n)).join(', ') + (mpk ? ' · MPK mini: K1–K4 = encoders 1–4, K5 = DATA, K6 = volume, K7 = A, K8 = B, pads (channel 10) = pads 1–16, buttons: "Setup" (DAW preset)' : '')
       : 'No MIDI device found – plug one in and press MIDI again');
+    if (!debug && unknown.length) this.status('New controller: ' + unknown.join(', ') + ' – its keys and drum pads play; for its knobs and buttons press "Setup"');
     return names.length;
   }
 
@@ -169,6 +193,10 @@ export class Controllers {
       this.transport(0, stop ? 0 : 1, 0); return;
     }
     if (st === 0xF0 || d[0] >= 0xF8) return;
+    if (st === 0xE0 && !this.learning && !this.wiz) {   // (SDK 11) a mixer's fader: pitch bend on the strip's channel
+      const p = this.profileOf(dev), e = p && (p.map || []).find((x) => x.pitchbend === ch + 1 && x.to === 'mix');
+      if (e) { this.mixFader(dev, e.track, ((v << 7) | n) / 16383); return; }
+    }
     if (isMpk(dev) && st === 0xB0) {   // the MPK mirrors a knob or button onto two ports: the same CC twice within 20 ms counts once
       const now = performance.now(), dk = ch + ':' + n + ':' + v, prev = this.mirror.get(dk);
       this.mirror.set(dk, { t: now, dev });
@@ -183,7 +211,7 @@ export class Controllers {
       this.target = null; return;
     }
     if (this.wiz && (isNote ? down : st === 0xB0)) { this.wizStep(key, isNote, n, ch); return; }
-    const b = this.bind[key] || this.preset(dev, st, n);
+    const b = this.bind[key] || this.preset(dev, st, n, ch);
     if (b && b.type === 'cycle') {   // − / +: through the six keys, then F1 MIXER, F5 SAVE, F6 GLOBAL and MENU (the overview) –
                                      // a controller without F keys reaches every area; 'again' = the same key once more
       if (!(isNote ? down : v > 0)) return;
@@ -194,6 +222,8 @@ export class Controllers {
       this.status('Area: ' + name);
       return;
     }
+    if (b && b.type === 'mix') { if ((isNote ? down : v > 0)) this.mixButton(b.what, b.track); return; }
+    if (b && b.type === 'library') { if ((isNote ? down : v > 0) && this.onLibrary) this.onLibrary(); return; }
     if (b && isPC) {   // a program change is a single "click": press and release
       if (b.type === EV.ENCODER) this.send(EV.ENCODER, b.id, 0, 1);
       else { this.send(b.type, b.id, 1, 0.9); setTimeout(() => this.send(b.type, b.id, 0, 0), 60); }
@@ -202,7 +232,7 @@ export class Controllers {
     if (b) {
       if (b.type === EV.ENCODER || b.type === 'volume') {
         if (isNote) { if (down) this.send(EV.ENCODER, b.id, 0, 1); return; }
-        const det = this.knobDelta(key, v);
+        const det = (this.profileOf(dev) || {}).knobs === 'relsm' ? (v < 64 ? v : 64 - v) : this.knobDelta(key, v);   // (relsm: Mackie V-pots, sign and size)
         if (b.type === 'volume') {   // VOLUME is the runtime's (a real pot on the device): absolute knob = the position, relative = nudges
           const cur = this.getVolume ? this.getVolume() : 0.8;
           if (this.onVolume) this.onVolume(this.mode.get(key) === 'abs' ? v / 127 : Math.min(1, Math.max(0, cur + det / 48)));
@@ -224,8 +254,9 @@ export class Controllers {
       if (!isNote && isDown && !b.hold && !this.releases.has(key)) { clearTimeout(this.tapT.get(key)); this.autoHeld.add(key); this.tapT.set(key, setTimeout(() => { this.autoHeld.delete(key); if (!this.releases.has(key)) this.send(b.type, b.id, 0, 0); }, 150)); }
       return;
     }
-    if (isNote && ch === 9 && n >= 36 && n <= 51) {   // (MPK mini: its pads 1-4 are the LOWER row, 5-8 the upper – VIBE counts from the top: rows swapped)
-      const p = n - 36, id = isMpk(dev) ? (((p >> 2) ^ 1) << 2) + (p & 3) : p;
+    const pads = (this.profileOf(dev) || {}).pads || { channel: 10, note: 36, rows: 'top-down' };   // (no profile: channel 10, 36-51)
+    if (isNote && ch === pads.channel - 1 && n >= pads.note && n < pads.note + 16) {   // ("bottom-up": in each row pair the lower row comes first – the MPK mini; VIBE counts from the top)
+      const p = n - pads.note, id = pads.rows === 'bottom-up' ? (((p >> 2) ^ 1) << 2) + (p & 3) : p;
       this.send(EV.PAD, id, down ? 1 : 0, down ? v / 127 : 0); return;
     }
     if (this.plugin) return;                           // (in the VIBE FM Plugin the DAW hands the notes to the firmware)
@@ -237,20 +268,82 @@ export class Controllers {
     try { localStorage.setItem('vibe.midich', String(this.channel)); } catch (e) { /* private mode */ }
     this.status(this.channel ? 'MIDI channel ' + this.channel + ': only this channel reaches the firmware (pads on channel 10 and the controller mapping always do)' : 'MIDI channel: all (omni)');
   }
-  // the factory mapping of a known controller, for a message no MIDI-Learn binding claims (MPK mini: knobs CC 70-77)
-  preset(dev, st, n) {
-    if (st !== 0xB0 || !isMpk(dev)) return null;
-    if (isDawPort(dev)) {
-      const DAW = { 17: { type: EV.BUTTON, id: BTN.SHIFT, label: 'SHIFT', hold: true }, 14: { type: EV.ENCODER, id: ENC.DATA, label: 'DATA' },
-        80: { type: 'cycle', dir: -1, label: 'previous area' }, 81: { type: 'cycle', dir: 1, label: 'next area' },
-        76: { type: EV.BUTTON, id: BTN.PLAY, label: 'PLAY' }, 74: { type: EV.BUTTON, id: BTN.STOP, label: 'STOP' }, 77: { type: EV.BUTTON, id: BTN.REC, label: 'REC' },
-        73: { type: EV.BUTTON, id: BTN.HOME, label: 'HOME' }, 78: { type: EV.BUTTON, id: BTN.ENTER, label: 'ENTER' }, 13: { type: EV.BUTTON, id: BTN.ENTER, label: 'ENTER (data wheel pressed)' }, 82: { type: 'cycle', dir: 0, label: 'same area again' } };
-      if (DAW[n]) return { ...DAW[n], preset: true };   // (else: the knobs, which Chrome delivers on this port too)
+  // ---------------------------------------------------------------- SDK 11: a mixer controller (Protokoll 7.2a)
+  // the firmware's mix_* parameters (worklet) and their values (with every frame)
+  setMixer(params) { this.mix = new Map((params || []).map((p, k) => [p.id, { ...p, k }])); this.mixv = []; this.pick.clear(); this.ledSent.clear(); }
+  mixGet(id) { const m = this.mix.get(id); return m ? this.mixv[m.k] : undefined; }
+  mixSet(id, v) { const m = this.mix.get(id); if (!m || !this.onParam) return false; v = Math.min(m.max, Math.max(m.min, v)); this.mixv[m.k] = v; this.onParam(m.i, v); return true; }
+  mixButton(what, t) {
+    if (!this.mix.size) { this.status('This firmware has no mixer parameters (mix_*) for the controller'); return; }
+    if (what === 'mute' || what === 'solo' || what === 'arm') { const id = 'mix_' + t + '_' + what; this.mixSet(id, (this.mixGet(id) || 0) >= 0.5 ? 0 : 1); return; }
+    if (what === 'select') { this.mixSet('mix_select', t); return; }
+    if (what === 'prev' || what === 'next') this.mixSet('mix_select', Math.round(this.mixGet('mix_select') || 1) + (what === 'next' ? 1 : -1));
+  }
+  // a fader picks the level up first: it acts once it comes within 2 % of it, or crosses it (no jump)
+  mixFader(dev, t, v) {
+    const id = 'mix_' + t + '_level', cur = this.mixGet(id); if (cur === undefined) return;
+    const k = dev + '|' + t, p = this.pick.get(k) || {};
+    if (!p.on && (Math.abs(v - cur) <= 0.02 || (p.last !== undefined && (p.last < cur) !== (v < cur)))) p.on = true;
+    p.last = v; this.pick.set(k, p); this.faderT.set(t, performance.now());
+    if (p.on) { this.mixSet(id, v); p.set = v; }
+    else this.status('Fader ' + t + ': pick up the level at ' + Math.round(cur * 100) + ' %');
+  }
+  // the controller's LEDs and fader positions follow the firmware ("led": true in its profile): only what changed
+  mixValues(vals, leds) {
+    this.mixv = vals; if (!this.access || this.plugin) return;
+    for (const [k, p] of this.pick) { const t = +k.split('|').pop(), cur = this.mixGet('mix_' + t + '_level'); if (p.on && p.set !== undefined && Math.abs(cur - p.set) > 0.01) p.on = false; }   // (moved elsewhere: pick up again)
+    const f = leds ? new Float32Array(leds) : null;
+    this.access.outputs.forEach((o) => {
+      const prof = this.profileOf(o.name); if (!prof || isLaunchpad(o.name)) return;
+      const msgs = [];
+      for (const e of prof.map || []) {
+        if (!e.led) continue;
+        if (e.to === 'mix' && e.what === 'level' && e.pitchbend) {
+          const v = this.mixGet('mix_' + e.track + '_level'); if (v === undefined) continue;
+          if (performance.now() - (this.faderT.get(e.track) ?? -1e9) < 300) continue;   // (being moved: no echo)
+          const x = Math.round(v * 16383), key = o.name + '|pb|' + e.pitchbend;
+          if (this.ledSent.get(key) !== x) { this.ledSent.set(key, x); msgs.push([0xE0 | (e.pitchbend - 1), x & 127, x >> 7]); }
+          continue;
+        }
+        if (e.note === undefined) continue;
+        let on;
+        if (e.to === 'mix') on = e.what === 'select' ? Math.round(this.mixGet('mix_select') || 0) === e.track : (this.mixGet('mix_' + e.track + '_' + e.what) || 0) >= 0.5;
+        else if (e.to === 'button' && f && BTN[e.id] !== undefined) on = f[32 + BTN.COUNT + BTN[e.id]] >= 0.5;
+        else continue;
+        const key = o.name + '|n|' + (e.channel || 1) + '|' + e.note, vel = on ? 127 : 0;
+        if (this.ledSent.get(key) !== vel) { this.ledSent.set(key, vel); msgs.push([0x90 | ((e.channel || 1) - 1), e.note, vel]); }
+      }
+      for (const m of msgs) { try { o.send(m); } catch (err) { /* port gone */ } }
+    });
+  }
+  // the controller's profile (Protokoll 15a), for a message no learned binding claims: an entry for this port first
+  // ("port": part of its name; "DAW" also the MPK's second port on Linux), then one for any port
+  preset(dev, st, n, ch) {
+    const p = this.profileOf(dev); if (!p || !Array.isArray(p.map)) return null;
+    const isNote = st === 0x90 || st === 0x80; if (!isNote && st !== 0xB0) return null;
+    const hit = (e) => (isNote ? e.note === n : e.cc === n) && (!e.channel || ch === undefined || e.channel - 1 === ch);
+    const onPort = (e) => (dev || '').toLowerCase().includes(String(e.port).toLowerCase()) || (e.port === 'DAW' && isDawPort(dev));
+    const e = p.map.find((x) => x.port && onPort(x) && hit(x)) || p.map.find((x) => !x.port && hit(x));
+    return e ? binding(e) : null;
+  }
+  // what was learned here (Setup, Learn), as a profile file per controller – to keep, share or put into the SDK's controllers/
+  exportProfiles() {
+    const by = new Map();
+    for (const [k, b] of Object.entries(this.bind)) {
+      const [dev, kind, ch, n] = k.split('|'); if (kind !== 'c' && kind !== 'n') continue;
+      const e = kind === 'c' ? { cc: +n } : { note: +n }; e.channel = +ch + 1;
+      if (b.type === EV.ENCODER) Object.assign(e, { to: 'encoder', id: ENC_NAME[b.id] });
+      else if (b.type === EV.BUTTON) Object.assign(e, { to: 'button', id: BTN_NAME.find((x) => BTN[x] === b.id) });
+      else if (b.type === EV.PAD) Object.assign(e, { to: 'pad', id: b.id + 1 });
+      else if (b.type === 'volume') e.to = 'volume';
+      else if (b.type === 'cycle') Object.assign(e, { to: 'area', dir: b.dir || 0 });
+      else if (b.type === 'library') e.to = 'library';
+      else continue;
+      const base = dev.replace(/\s+(MIDI|DAW|Port)\b.*$/i, '').trim() || dev;
+      if (!by.has(base)) by.set(base, { format: 1, name: base, match: [base], knobs: 'auto', map: [] });
+      by.get(base).map.push(e);
     }
-    const base = MPK_CC0.find((b) => n >= b && n < b + 8);   // the knobs: on whichever port the unit sends them (MIDI or DAW)
-    if (base === undefined) return null;
-    const k = MPK_TARGETS[n - base];
-    return { type: k[0] === 'volume' ? 'volume' : EV.ENCODER, id: k[0], label: k[1], preset: true };
+    return [...by.values()];
   }
   // a knob's turn in detents. Knobs send either absolute values (0..127) or relative steps: around 64 (63 = -1,
   // 65 = +1) or two's complement (1 = +1, 127 = -1). The mode is decided from the first values and then remembered:
@@ -291,7 +384,7 @@ export class Controllers {
     const st = d[0] & 0xF0, ch = (d[0] & 15) + 1, what = st === 0x90 && d[2] ? 'Note ' + d[1] : st === 0x80 || st === 0x90 ? 'Note off ' + d[1] : st === 0xB0 ? 'CC ' + d[1] + ' = ' + d[2] : st === 0xE0 ? 'Pitchbend' : st === 0xC0 ? 'Program Change ' + d[1] : 'Status ' + d[0].toString(16);
     let to = '';
     if ((st === 0x90 || st === 0x80) && ch === 10 && d[1] >= 36 && d[1] <= 51) { const p = d[1] - 36; to = ' → Pad ' + ((isMpk(dev) ? (((p >> 2) ^ 1) << 2) + (p & 3) : p) + 1); }
-    const p = this.bind[dev + '|' + (st === 0xB0 ? 'c' : 'n') + '|' + (ch - 1) + '|' + d[1]] || this.preset(dev, st, d[1]);
+    const p = this.bind[dev + '|' + (st === 0xB0 ? 'c' : 'n') + '|' + (ch - 1) + '|' + d[1]] || this.preset(dev, st, d[1], ch - 1);
     if (p && !to) to = ' → ' + p.label;
     this.activity('MIDI ← ' + dev.replace(/Arturia /g, '').replace(/ Arturia Be$| BeatStepPr$/, '') + ': ' + what + ' · channel ' + ch + to);
   }
@@ -324,7 +417,7 @@ export class Controllers {
     const w = this.wiz, t = w.list[w.i];
     if (w.used.has(key)) return;                      // the knob just bound is still turning
     if (t.knob && isNote) return;                     // a knob needs a CC
-    if (this.preset(key.split('|')[0], isNote ? 0x90 : 0xB0, n)) return;   // (a knob / SHIFT the profile already has)
+    if (this.preset(key.split('|')[0], isNote ? 0x90 : 0xB0, n, ch)) return;   // (a knob / SHIFT the profile already has)
     w.used.add(key); this.bind[key] = { type: t.type, id: t.id, dir: t.dir, label: t.label }; this.save();
     w.i++; this.wizPrompt();
   }

@@ -10,12 +10,14 @@ function is documented where it is declared. When this file and a header disagre
 1. **It plays at once.** Sound on the keys and pads right after start, no setup first.
 2. **The layout is the house layout:** full width, big type. The six keys right of ENTER are **SOUND · ENV · LFO · ARP ·
    FX · SEQ** where it fits, encoders 1–4 are the four values shown above F1–F6, and F1–F6 have their captions on the display.
-3. **FOCUS (SDK 10):** every control on the display is reachable with DATA + ENTER (`vf_*`). If DATA already has a
+3. **No controller code in a firmware.** Controllers are mapped by the host (`CONTROLLERS.md`). A firmware with tracks
+   reports its mixer (SDK 11).
+4. **FOCUS (SDK 10):** every control on the display is reachable with DATA + ENTER (`vf_*`). If DATA already has a
    job, use `vf_mode(VF_ON_HOLD)`.
-4. **HOME is the firmware library's:** call `vibe_request(VIBE_REQ_FIRMWARE_MENU)`.
-5. **No clicks, ever:** nothing heavy in `vibe_on_audio`, and nothing long in `vibe_on_draw`. On the VIBE, drawing and
+5. **HOME is the firmware library's:** call `vibe_request(VIBE_REQ_FIRMWARE_MENU)`.
+6. **No clicks, ever:** nothing heavy in `vibe_on_audio`, and nothing long in `vibe_on_draw`. On the VIBE, drawing and
    sound share one flow. `wasmtest` reports `draw_max_ms`, which should stay at a few ms.
-6. **`vibe-check` passes before you call it done.**
+7. **`vibe-check` passes before you call it done.**
 
 ## The shape of a firmware
 
@@ -118,6 +120,13 @@ void vibe_on_event(const vibe_event *e) {
 - `vf_enable(0)` while a page uses DATA / ENTER itself (a list). With `VF_ON_HOLD`, a short ENTER still reaches you
   (on release); a long one never does.
 - Full reference: `sdk/include/vibe_gfx.h`. A complete example: `firmwares/obervave-src/main.c` (`focus_items`).
+
+## SDK 11: the mixer (only if the firmware has tracks)
+
+Report the tracks as parameters with the fixed ids `mix_<n>_level` (0..1), `mix_<n>_pan` (-1..1), `mix_<n>_mute` /
+`_solo` / `_arm` (0/1, steps 2), and `mix_select` (1..N). Then any mixer controller and the DAW work them. Keep them current
+with `vibe_param_set` (compare once per block). Never write controller-specific code: controllers are the host's
+(profiles, see `CONTROLLERS.md`). Example: `firmwares/obervave-src/o3_daw.h`.
 
 ## Patterns that work
 

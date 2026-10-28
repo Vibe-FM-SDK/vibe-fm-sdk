@@ -178,6 +178,12 @@ MIDI out and its Cue output.
 | Stop/Play · Loop · Record | PLAY · STOP · REC | SHIFT | SHIFT |
 | − / + | through the areas | TAP TEMPO | the same area again |
 
+**Controller profiles:** what a controller does on the VIBE is a small JSON file in `controllers/` (`CONTROLLERS.md`).
+**Setup** walks you through yours, and **Profile ↓** saves it as such a file. It then works the same on the VIBE.
+
+**Mixer controllers** (Mackie Control): faders, MUTE / SOLO / SELECT and the LEDs work the tracks of OberVave and of
+every firmware that reports its mixer (SDK 11).
+
 **Any other MIDI controller:**
 
 - Keys play notes, and channel 10 plays the pads.

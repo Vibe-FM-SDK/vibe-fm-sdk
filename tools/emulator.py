@@ -36,6 +36,10 @@ for n in sorted(os.listdir(BUILD)) if os.path.isdir(BUILD) else []:
                 'author': meta.get('author', ''), 'description': meta.get('description', ''), 'license': meta.get('license', ''),
                 'order': len(lib)})
 json.dump(lib, open(os.path.join(fw, 'index.json'), 'w', encoding='utf-8'), ensure_ascii=False, indent=1)
+# controllers/: the controller profiles (CONTROLLERS.md) – yours too: put a .json there, restart the emulator
+CT = os.path.join(ROOT, 'controllers')
+profiles = [json.load(open(os.path.join(CT, n), encoding='utf-8')) for n in sorted(os.listdir(CT)) if n.endswith('.json')] if os.path.isdir(CT) else []
+json.dump(profiles, open(os.path.join(EMU, 'controllers.json'), 'w', encoding='utf-8'), ensure_ascii=False)
 print('firmwares:', ', '.join(f['id'] for f in lib))
 class H(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):

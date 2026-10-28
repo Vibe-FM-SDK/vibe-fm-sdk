@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 10        /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 11        /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -34,7 +34,9 @@
                                       from a host, firmwares for 1-8 still run, SDK-9 firmwares run on SDK-8 hosts.
                                       10 (28.10.2026): FOCUS (vibe_gfx.h, vf_*) – every control on the display reachable
                                       with one knob and one button (DATA + ENTER), the standard for every firmware. Inside
-                                      the firmware only: nothing new for a host. */
+                                      the firmware only: nothing new for a host.
+                                      11 (28.10.2026): the mixer convention – mix_<n>_level / pan / mute / solo / arm and
+                                      mix_select as parameters (Protokoll 7.2a): any mixer controller works the tracks. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an

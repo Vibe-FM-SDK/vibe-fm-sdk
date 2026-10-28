@@ -99,10 +99,12 @@ async function seed(fw, store) {
 }
 function onMessage(d) {
   if (d.t === 'ready') {
+    ctl.setMixer([]);
     running = true; ctl.sdk = d.sdk; status((current.name || 'Firmware') + ' running · VIBE SDK ' + d.sdk);
     node.port.postMessage({ t: 'cvin', volts: +rear.cvKnob.value });
   }
-  else if (d.t === 'frame') { framePending = false; panel.showFrame(new Uint16Array(d.fb)); panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds); rear.show(d.rear); }
+  else if (d.t === 'frame') { framePending = false; panel.showFrame(new Uint16Array(d.fb)); panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds); if (d.mixv) ctl.mixValues(d.mixv, d.leds); rear.show(d.rear); }
+  else if (d.t === 'mixer') ctl.setMixer(d.params);   // (SDK 11) the firmware's mix_* parameters
   else if (d.t === 'log') console.log('[firmware]', d.text);
   else if (d.t === 'midi') ctl.midiOut(d.msgs, ctx);   // (SDK 9) the firmware's MIDI out – to the chosen Web MIDI port
   else if (d.t === 'store') { const sp = storeSpace(current); storeQ = storeQ.then(() => storePut(sp, d.name, d.data)); }
@@ -299,6 +301,17 @@ $('#tb-setup').addEventListener('click', async () => {
   await powerOn(); if (!ctl.access) await ctl.connect();
   if (ctl.wiz) { ctl.stopWizard(false); $('#tb-setup').classList.remove('on'); return; }
   ctl.startWizard(); $('#tb-setup').classList.add('on');
+});
+ctl.onParam = (i, v) => { if (node && running) node.port.postMessage({ t: 'pset', i, v }); };   // (SDK 11: a mixer controller moves a mix_* parameter)
+ctl.onLibrary = () => showMenu('Your controller asked for the library:');   // (a profile's "library" entry)
+$('#tb-profile').addEventListener('click', () => {   // (Protokoll 15a) what was learned here, as profile files
+  const list = ctl.exportProfiles();
+  if (!list.length) { status('Nothing learned yet – connect your controller and press "Setup" first'); return; }
+  for (const p of list) {
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(p, null, 2) + '\n'], { type: 'application/json' }));
+    a.download = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  }
+  status('Saved ' + list.length + ' controller profile' + (list.length > 1 ? 's' : '') + ' – share it, or put it into the SDK\'s controllers/ folder');
 });
 $('#tb-learn').addEventListener('click', async (e) => {
   await powerOn(); if (!ctl.access) await ctl.connect();

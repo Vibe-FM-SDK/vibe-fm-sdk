@@ -46,6 +46,17 @@ class VibeHost extends AudioWorkletProcessor {
       this.vt = this.sdk >= 5 && x.vibe_wasm_time ? x.vibe_wasm_time() : 0;   // SDK 5: the time table
       this.ok = true;
       send({ t: 'ready', sdk: this.sdk, sampleRate });
+      // SDK 11 (Protokoll 7.2a): the firmware's mixer parameters (mix_*) – the page maps a mixer controller to them
+      this.mix = [];
+      if (x.vibe_wasm_param_count && x.vibe_wasm_param_info) {
+        const dv = new DataView(mem.buffer), cstr = (p) => { let e = p; const b = new Uint8Array(mem.buffer); while (b[e]) e++; return text(p, e - p); };
+        for (let i = 0, n = x.vibe_wasm_param_count(); i < n; i++) {
+          const q = x.vibe_wasm_param_info(i); if (!q) continue;
+          const id = cstr(dv.getUint32(q, true));
+          if (id.startsWith('mix_')) this.mix.push({ i, id, min: dv.getFloat32(q + 8, true), max: dv.getFloat32(q + 12, true) });
+        }
+        if (this.mix.length) send({ t: 'mixer', params: this.mix });
+      }
     } catch (e) { send({ t: 'crash', error: String(e && e.message || e) }); }
     this.port.onmessage = (m) => {
       const d = m.data; if (!this.ok) return;
@@ -60,13 +71,15 @@ class VibeHost extends AudioWorkletProcessor {
         else if (d.t === 'latency') { if (this.vt) new Uint32Array(this.x.memory.buffer, this.vt, 8)[2] = d.frames; }
         else if (d.t === 'storeput') store.set(d.name, d.data);   // a file dropped onto the device (music for PLAYER), already in IndexedDB
         else if (d.t === 'cvin') { if (this.rear) new Float32Array(this.x.memory.buffer, this.rear, 6)[2] = d.volts; }
+        else if (d.t === 'pset') { if (this.x.vibe_wasm_param_set) this.x.vibe_wasm_param_set(d.i, d.v); }   // (SDK 11) a mixer controller
         else if (d.t === 'draw') {
           const fbp = this.x.vibe_wasm_draw();
           const fb = new Uint16Array(this.x.memory.buffer, fbp, 480 * 320).slice();
           const leds = new Uint8Array(this.x.memory.buffer, this.x.vibe_wasm_leds(), 384).slice();
           const rear = this.rear ? Array.from(new Float32Array(this.x.memory.buffer, this.rear, 6)) : null;
           const labels = this.x.vibe_wasm_labels ? new Uint8Array(this.x.memory.buffer, this.x.vibe_wasm_labels(), 25 * 8).slice() : null;   // SDK 2 (18.10.): button captions
-          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer }, labels ? [fb.buffer, leds.buffer, labels.buffer] : [fb.buffer, leds.buffer]);
+          const mixv = this.mix && this.mix.length ? this.mix.map((m) => this.x.vibe_wasm_param_value(m.i)) : null;   // (SDK 11: for the controller's LEDs and faders)
+          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv }, labels ? [fb.buffer, leds.buffer, labels.buffer] : [fb.buffer, leds.buffer]);
         }
       } catch (e) { this.crash(e); }
     };
