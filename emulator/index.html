@@ -1,0 +1,128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#0B0C0E">
+<meta name="description" content="VIBE FM Mk1 in the browser: play the device with its real firmware – pads, keys, sequencer, synth.">
+<title>VIBE FM Mk1 · Emulator</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111214'/%3E%3Crect x='6' y='6' width='9' height='9' rx='2' fill='%23FF6A1A'/%3E%3Crect x='17' y='6' width='9' height='9' rx='2' fill='%233FA9F5'/%3E%3Crect x='6' y='17' width='9' height='9' rx='2' fill='%23F5C93F'/%3E%3Crect x='17' y='17' width='9' height='9' rx='2' fill='%236EE7A8'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/vibe.css">
+<style>
+  .tools select { min-height: 34px; border: 0; border-radius: 8px; background: #26282D; color: var(--fg); font: 600 12.5px var(--sans); padding: 0 8px; cursor: pointer; max-width: 190px; }
+  .status { margin: 10px 0 0; font: 400 11.5px var(--mono); color: var(--muted); min-height: 16px; letter-spacing: 0.03em; }
+  .status.bad { color: #FF5A4D; }
+  body.plugin.dropping::after { content: 'Drop the firmware here – the .zip from thefirmwarehub.com (or its .wasm)'; position: fixed; inset: 12px; z-index: 50; display: grid; place-items: center; text-align: center; padding: 24px; border: 3px dashed #FF60BE; border-radius: 30px; background: rgba(11, 12, 14, 0.82); font: 800 26px var(--sans); color: var(--fg); pointer-events: none; }
+  .stagewrap.drop::after { content: 'Drop firmware (.wasm) here'; position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; border: 3px dashed var(--accent); border-radius: 30px; background: rgba(11, 12, 14, 0.7); font: 800 28px var(--sans); color: var(--fg); }
+  .dispmenu p { margin: 0 0 8px; color: #8A93A6; font-size: 11px; }
+</style>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand"><b>VIBE</b> <em>FM</em> <span>Mk1</span> <small>Emulator · VIBE FM Protokoll 7</small></div>
+  <nav class="tools" aria-label="Tools">
+    <select id="fw" aria-label="Firmware"></select>
+    <button type="button" id="tb-rear" class="wide" title="Show or hide the rear panel connectors">Rear panel</button>
+    <button type="button" id="tb-in" class="wide" title="Microphone or audio interface: channel 1 = IN 1, channel 2 = IN 2">Audio input</button>
+    <button type="button" id="tb-midi" class="wide" title="USB MIDI: keyboard, Launchpad Mini MK3, BeatStep Pro …">MIDI</button>
+    <select id="midich" aria-label="MIDI channel" title="Global MIDI channel: only messages on this channel reach the firmware (pads on channel 10 and the controller mapping always apply)"><option value="0">Channel: all</option><option value="1">Channel 1</option><option value="2">Channel 2</option><option value="3">Channel 3</option><option value="4">Channel 4</option><option value="5">Channel 5</option><option value="6">Channel 6</option><option value="7">Channel 7</option><option value="8">Channel 8</option><option value="9">Channel 9</option><option value="10">Channel 10</option><option value="11">Channel 11</option><option value="12">Channel 12</option><option value="13">Channel 13</option><option value="14">Channel 14</option><option value="15">Channel 15</option><option value="16">Channel 16</option></select>
+    <select id="midiout" aria-label="MIDI out" title="SDK 9: where the firmware's MIDI out goes (notes, clock) – a port, or off"><option value="">MIDI out: off</option></select>
+    <button type="button" id="tb-setup" class="wide" title="Set up a controller: walks you through every VIBE control, you move the matching one on your controller">Setup</button>
+    <button type="button" id="tb-learn" class="wide" title="MIDI learn: tap a VIBE control, then move one on your controller. Shift+click clears all mappings">Learn</button>
+    <button type="button" id="tb-cheat" title="Cheat sheet of the running firmware, right of the device">Cheat sheet</button>
+    <button type="button" id="tb-help">Help</button>
+    <label class="viewsel" title="Editor: every parameter at once · Full: the whole device · Rack: the device without keys and pads, the display bigger · Display: just the screen, pixel-exact">View
+      <select id="tb-view">
+        <option value="editor" hidden disabled>Editor</option>
+        <option value="full">Full</option>
+        <option value="rack">Rack</option>
+        <option value="display">Display</option>
+      </select>
+    </label>
+    <button type="button" id="tb-full" aria-label="Full screen">⛶</button>
+  </nav>
+  <input type="file" id="fwfile" accept=".wasm" hidden>
+</header>
+
+<main class="stage">
+  <div id="stagewrap" class="stagewrap">
+    <div id="device" class="device" aria-label="VIBE FM Mk1"></div>
+    <div id="power" class="power">
+      <div class="intro">
+        <p class="kicker">Playable prototype · real firmware in the browser</p>
+        <h1>VIBE <em>FM</em> <span>Mk1</span></h1>
+        <p class="lead">One instrument, many firmwares. What you play here is the same code that will run on the device.</p>
+        <div class="cta">
+          <button type="button" id="power-on" class="go"><span class="pwr">⏻</span>Power on</button>
+          <button type="button" id="power-demo" class="demo">▶ Hear the demo</button>
+        </div>
+        <ul class="hints">
+          <li>Tap <b>pads &amp; keys</b></li>
+          <li>Hold <b>HOME</b> = all modes</li>
+          <li>Drag or scroll the <b>encoders</b></li>
+        </ul>
+        <p class="foot">Headphones recommended · <a href="https://vibe3d.designburgapps.com/" target="_blank" rel="noopener">See the device in 3D ↗</a></p>
+        <p class="turn">Please turn your phone sideways</p>
+      </div>
+    </div>
+  </div>
+  <div id="rear" class="rear" aria-label="Rear panel: connectors"></div>
+  <p id="status" class="status" role="status"></p>
+</main>
+
+<aside id="cheat" class="cheat" aria-label="Firmware cheat sheet" hidden><p class="none">Power on – then this shows how to play the running firmware.</p></aside>
+
+<dialog id="help" class="help">
+  <h2>How to play VIBE</h2>
+  <div class="cols">
+    <section>
+      <h3>On the device</h3>
+      <ul>
+        <li><b>PLAY / STOP</b> start the beat, <b>REC</b> records pads and keys into the pattern.</li>
+        <li><b>Pads</b> play drums – centre = loud, edge = soft.</li>
+        <li><b>Keys</b> play the synth, swiping across works too.</li>
+        <li><b>Encoders</b>: drag or scroll. <b>A / B</b> and <b>DATA</b> do what the display's left column says. Values show in the display.</li>
+        <li><b>F1–F6</b> do what the display shows above them.</li>
+        <li><b>MENU</b> shows every encoder, key and pad of the open page in the display – hold SHIFT for the second layer.</li>
+        <li><b>Cheat sheet</b> (top bar): how the running firmware is played, right of the device, toggles on and off.</li>
+        <li><b>OberVave 2.0</b> (default): four tracks A–D. <b>F1</b> MIXER (again: LEVEL → PAN → SENDS), <b>F2</b> TRACKS, <b>F3/F4</b> sound, <b>F5</b> SAVE, <b>F6</b> GLOBAL, SHIFT+F6 UNDO. Colour keys FX ENV LFO ARP EDIT SEQ; SEQ again = TRACKS → STEPS → TRACK. Pad row 1 = start/stop a track on the bar, row 2 = select a track; in MIXER rows 2–3 mute (SHIFT+pad = solo). A = track, B = sound, DATA = bar (STEPS) or next pattern (MIXER / TRACKS). Hold <b>REC</b> 1 s or <b>SHIFT+REC</b> clears the selected track.</li>
+        <li><b>VIBE GROOVE 1.5</b> (groovebox): eight tracks A–H in two banks (<b>tap SHIFT</b> = A–D / E–H), each DRUMS or SYNTH with any kit or sound. Played like OberVave – same F keys, colour keys, pads and encoders.</li>
+        <li><b>OberVave 3 (beta)</b> and <b>GROOVE</b>: the colour keys run as the signal goes – <b>SOUND · ENV · LFO · ARP · FX · SEQ</b> (OberVave 2.0 still FX ENV LFO ARP EDIT SEQ).</li>
+        <li><b>Holding with the mouse:</b> in OberVave first <b>SHIFT+F5</b> (HOLD), then a colour key – it stays held until you click it again.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Computer keyboard</h3>
+      <ul>
+        <li><kbd>Z</kbd><kbd>X</kbd><kbd>C</kbd>… white keys, <kbd>S</kbd><kbd>D</kbd><kbd>G</kbd>… black keys (on a German layout <kbd>Y</kbd> instead of <kbd>Z</kbd>)</li>
+        <li><kbd>1</kbd>–<kbd>8</kbd>, <kbd>Q</kbd>–<kbd>I</kbd> pads 1–16</li>
+        <li><kbd>Space</kbd> play/stop · <kbd>O</kbd> REC · <kbd>Tab</kbd> HOME</li>
+        <li><kbd>←</kbd><kbd>→</kbd> octave · <kbd>Shift</kbd> SHIFT · <kbd>Esc</kbd> back</li>
+      </ul>
+      <h3>Controllers (USB MIDI, Chrome/Edge)</h3>
+      <ul>
+        <li><b>Launchpad Mini MK3</b>: top left 4×4 = pads, top right = PLAY/STOP/REC/HOME and the six keys, bottom two octaves of keys, lights as on the device.</li>
+        <li><b>MPK mini IV / MK3</b> (any preset, DAW too): K1–K4 = encoders 1–4, K5 = DATA, K6 = volume, K7 = A, K8 = B; pads = pads 1–8, bank B = 9–16; keys, pitch/mod wheel and sustain pedal go to the firmware. Buttons (only in the <b>DAW preset</b>): − / + step through the colour keys, MIXER, TRACKS, GLOBAL and MENU; TAP TEMPO = the chosen one again (pages through its area); Stop/Play = PLAY, Loop = STOP, Record = REC, Undo = HOME, Overdub = ENTER, SHIFT = SHIFT, push encoder = DATA. Black keys wrong? The MPK's Scales mode is on (SHIFT+pad 7 turns it off). Map it differently: <b>Setup</b>.</li>
+        <li><b>MIDI channel</b> (top bar): "all" passes every channel to the firmware; channel 1–16 only that one. Pads on channel 10 and the controller mappings (MPK, Launchpad, learned) always apply.</li>
+        <li><b>BeatStep Pro</b> &amp; co.: drum pads (channel 10) = pads; knobs with <b>Learn</b>: tap a VIBE control, move one on the controller.</li>
+      </ul>
+      <h3>Rear panel (below the device)</h3>
+      <ul>
+        <li><b>IN 1 / IN 2</b>: channels 1 and 2 of your interface. LINE / MIC / HI-Z is set by the firmware.</li>
+        <li><b>PEDAL</b>: footswitch (<kbd>P</kbd> or MIDI CC64) or expression (knob or CC11).</li>
+        <li><b>CV OUT / GATE OUT</b> show what the firmware sends. <b>CV IN</b>: knob −5…+5 V. <b>CLK IN</b>: tap or MIDI clock.</li>
+      </ul>
+      <h3>Firmware</h3>
+      <ul>
+        <li>Choose it in the top bar, HOME + pad 16, or drop your own <b>.wasm</b> onto the device.</li>
+      </ul>
+    </section>
+  </div>
+  <p class="note">This runs the real firmware (C → WebAssembly) on the VIBE SDK – the same code goes onto the device.</p>
+  <button type="button" id="help-close" class="close">Close</button>
+</dialog>
+
+<script type="module" src="js/host.js"></script>
+</body>
+</html>

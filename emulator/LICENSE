@@ -1,0 +1,5 @@
+VIBE FM Emulator – Copyright 2026 Sven Trogus (zvenson). All rights reserved.
+
+This folder (the emulator: index.html, js/, css/, fonts/ – fonts under their own licences, see ../sdk/LICENSE-FONTS) is
+free to use for developing and testing firmwares for VIBE FM, on your own computer. You may not redistribute it, host it
+for others or use it in another product. The SDK beside it (sdk/, tools/, examples/) is Apache-2.0 – see ../LICENSE.

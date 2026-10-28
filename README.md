@@ -21,6 +21,7 @@ WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your
 | **The native firmwares** *(to look at)* | what this SDK makes: OberVave 3 (VOX coming soon) – <https://thefirmwarehub.com/native/>. OberVave 3 comes with VIBE FM VST, the Editor included. |
 | a shell | macOS / Linux: the terminal. Windows: Git Bash or WSL (`tools/build.sh` is a plain `sh` script). |
 | Node.js 18+ *(optional)* | for `tools/vibe-check.mjs` and `tools/wasmtest.mjs` (testing without a DAW). |
+| Python 3 *(optional)* | for `tools/emulator.py` – the device in your browser (Chrome or Edge). |
 
 ## Five minutes to sound
 
@@ -143,6 +144,23 @@ on the hardware, where the Editor does not exist.
 
 This repository is where the SDK grows: `git pull` brings new versions, the **issues** are the place for questions,
 bugs and wishes. Your own firmwares are best kept in a repository of your own (copy `examples/` as a start).
+
+## Play it in the browser – the emulator
+
+```sh
+python3 tools/emulator.py
+```
+
+opens the **VIBE FM emulator** on your own computer (http://127.0.0.1:8766): the whole device – keys, pads, knobs, the
+display, the rear panel – playing every firmware you built (`build/*.wasm`, choose it in the top bar), or any `.wasm` you
+drop onto it. Your MIDI keyboard works (Web MIDI), the audio input too. Nothing leaves your computer. (The emulator in
+`emulator/` is free to use for developing VIBE FM firmwares, not to pass on – see `emulator/LICENSE`.)
+
+## Working with an AI assistant
+
+Give it **`AGENTS.md`** (Claude Code, Cursor, Copilot and others read it on their own when you open this folder; else
+paste it in): the shape of a firmware, the hard rules, the API in short, patterns that work, how to build and check,
+the common mistakes. Then ask for the instrument you want – and have it run `vibe-check` before it says it is done.
 
 ## Test without a DAW
 
