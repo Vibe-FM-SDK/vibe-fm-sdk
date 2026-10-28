@@ -140,6 +140,12 @@ on the hardware, where the Editor does not exist.
 - **Don't run code at load time** other than through `vibe_on_init`.
 - Leave `VIBE_PARALLEL_AUDIO` off for now (it has extra rules we have not published yet).
 
+## New in SDK 10: FOCUS
+
+Every control on the display reachable with **one knob and one button** (DATA + ENTER) – the standard for every
+firmware, so the VIBE can be played from the smallest controller. About ten lines in your firmware: `AGENTS.md`
+("SDK 10"), `sdk/include/vibe_gfx.h` (`vf_*`). Nothing new for a host: it runs in every VIBE FM VST.
+
 ## Updates
 
 This repository is where the SDK grows: `git pull` brings new versions, the **issues** are the place for questions,
@@ -153,7 +159,9 @@ python3 tools/emulator.py
 
 opens the **VIBE FM emulator** on your own computer (http://127.0.0.1:8766): the whole device – keys, pads, knobs, the
 display, the rear panel – playing every firmware you built (`build/*.wasm`, choose it in the top bar), or any `.wasm` you
-drop onto it. Your MIDI keyboard works (Web MIDI), the audio input too. Nothing leaves your computer. (The emulator in
+drop onto it. **OberVave 3.1** and the **PLAYER** (with its two-deck DJ and three demo tracks) are always in the list –
+to try the device, and OberVave's full source is in `firmwares/obervave-src/` to read (GPL-3.0). How to play all of it:
+**`MANUAL.md`**. Your MIDI keyboard works (Web MIDI), the audio input too. Nothing leaves your computer. (The emulator in
 `emulator/` is free to use for developing VIBE FM firmwares, not to pass on – see `emulator/LICENSE`.)
 
 ## Working with an AI assistant
@@ -209,7 +217,7 @@ always added, never taken away).
 - **The VIBE FM Protocol specification** in English (the rules behind `vibe-check`, the two-flows mode).
 - A **device CPU budget** in `vibe-check`, measured on the hardware.
 
-Not in SDK 9 yet – tell us if you need one of these first:
+Not in SDK 10 yet – tell us if you need one of these first:
 
 - **More than one stereo output to the DAW** (each track on its own channel; today: stereo out, dual mono and the Cue).
 - **Reporting your own latency** to the DAW (a look-ahead limiter, for instance).

@@ -1,0 +1,67 @@
+<!-- OberVave cheat sheet: an HTML fragment the emulator shows right of the device (tools/build.sh copies it to
+     runtime/web/firmware/obervave3.cheat.html). Styles: .cheat in runtime/web/css/vibe.css. Keep it short – it sits
+     beside the device while you play. -->
+<h2>OBERVAVE <small>3.1 · 4 tracks A–D</small></h2>
+<p class="dim">Analog poly · arp · sequencer · MENU = what every control does right now</p>
+
+<h3>Colour keys = sound &amp; sequencer</h3>
+<table>
+  <tr><td><span class="k c" style="background:#B38CFF">SOUND</span></td><td>OSC 1 · OSC 2 · OSC MOD · FILTER · FILTER + (in STEPS: clear the step)</td></tr>
+  <tr><td><span class="k c" style="background:#F5C93F">ENV</span></td><td>Filter envelope · amp envelope</td></tr>
+  <tr><td><span class="k c" style="background:#6EE7A8">LFO</span></td><td>Shape, rate · destinations</td></tr>
+  <tr><td><span class="k c" style="background:#FF6A1A">ARP</span></td><td>Mode · division · octaves · gate</td></tr>
+  <tr><td><span class="k c" style="background:#3FA9F5">FX</span></td><td>Chorus · Delay · Reverb · Drive (again: next one) – MIX = return level</td></tr>
+  <tr><td><span class="k c" style="background:#FF5A8A">SEQ</span></td><td>Again and again: <b>TRACKS → STEPS → TRACK → PATTERNS</b></td></tr>
+</table>
+<p class="dim">Encoders 1–4 = the four values shown above F1–F6.</p>
+
+<h3>F keys</h3>
+<table>
+  <tr><td><span class="k">F1</span></td><td><b>MIXER</b> · again: LEVEL → PAN → CHORUS → DELAY → REVERB → DRIVE → <b>MASTER</b> (volume, DJ filter, drive, comp)</td></tr>
+  <tr><td><span class="k">F2</span></td><td><b>TRACKS</b>: all four tracks at a glance</td></tr>
+  <tr><td><span class="k">F3 F4</span></td><td>Sound of the selected track − / +</td></tr>
+  <tr><td><span class="k">F5</span></td><td><b>SAVE</b> the sound · <span class="dim">SHIFT: HOLD a colour key</span></td></tr>
+  <tr><td><span class="k">F6</span></td><td><b>GLOBAL</b>: tempo, click, MIDI, tune · ENTER: sync · DATA: <b>MIDI OUT</b> (3.1: tracks A–D out on the global channel and the next three, clock out) · <span class="dim">SHIFT: UNDO</span></td></tr>
+  <tr><td><span class="k">RESET</span></td><td>GLOBAL, SHIFT+ENTER → RESET ALL? → ENTER: everything saved back to factory</td></tr>
+</table>
+
+<h3>Encoders A · B · DATA</h3>
+<table>
+  <tr><td><span class="k">A</span></td><td>Track A–D · in STEPS: step ◀ ▶</td></tr>
+  <tr><td><span class="k">B</span></td><td>Sound of the track · STEPS: note ▲▼ (SHIFT: sound) · TRACK: transpose</td></tr>
+  <tr><td><span class="k">DATA</span></td><td>STEPS: bar ▲▼ · MIXER / TRACKS: next pattern (on the bar) · <span class="dim">SHIFT: tempo</span></td></tr>
+</table>
+
+<h3>Pads · columns = tracks A–D</h3>
+<div class="pads">
+  <div style="--c:#60B0FF">START / STOP<small>A</small></div>
+  <div style="--c:#FF9628">START / STOP<small>B</small></div>
+  <div style="--c:#6EDC96">START / STOP<small>C</small></div>
+  <div style="--c:#FF6096">START / STOP<small>D</small></div>
+  <div style="--c:#60B0FF">SELECT<small>A</small></div>
+  <div style="--c:#FF9628">SELECT<small>B</small></div>
+  <div style="--c:#6EDC96">SELECT<small>C</small></div>
+  <div style="--c:#FF6096">SELECT<small>D</small></div>
+  <div style="--c:#8A93A6">NOTES<small>row 3</small></div>
+  <div style="--c:#8A93A6">NOTES<small></small></div>
+  <div style="--c:#8A93A6">NOTES<small></small></div>
+  <div style="--c:#8A93A6">NOTES<small></small></div>
+  <div style="--c:#8A93A6">NOTES<small>row 4</small></div>
+  <div style="--c:#8A93A6">NOTES<small></small></div>
+  <div style="--c:#8A93A6">NOTES<small></small></div>
+  <div style="--c:#8A93A6">NOTES<small></small></div>
+</div>
+<p class="dim">Start / stop waits for the next bar (blinks) · REC lit: row 1 records instead<br>
+TRACKS: rows 3–4 = rows 1–2 (either MPK bank) · MIXER: rows 2–3 <b>mute</b>, SHIFT+pad <b>solo</b>, row 4 select · SEQ: pads = the 16 steps</p>
+
+<h3>FOCUS · one knob, one button</h3>
+<p><b>Hold ENTER</b> (or the DATA wheel) 0.6 s: an orange frame walks over the area, track, sound, the four values and F1–F6 with <b>DATA</b> · <b>ENTER</b> uses it (a value: DATA changes, ENTER ends) · hold again or ↩: off. A short ENTER stays OberVave's.</p>
+
+<h3>Transport</h3>
+<table>
+  <tr><td><span class="k">PLAY</span></td><td>Start from step 1 / stop · <kbd>Space</kbd></td></tr>
+  <tr><td><span class="k">REC</span></td><td>Record on / off · hold 1 s or <b>SHIFT+REC</b>: clear the track · <kbd>O</kbd></td></tr>
+  <tr><td><span class="k">MENU</span></td><td>Overview of every control · hold SHIFT: 2nd layer</td></tr>
+  <tr><td><span class="k">HOME</span></td><td>Performance view</td></tr>
+</table>
+<p class="dim">8 patterns · edits are kept when you switch while playing and saved at the next stop · programs 65–70: KICK, SNARE, HIHAT, CLAP, E-PIANO, WURLI · QUANT (TRACKS, encoder 4) per track, OFF = as played</p>

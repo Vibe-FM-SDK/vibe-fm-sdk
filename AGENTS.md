@@ -75,6 +75,38 @@ The host calls all four from **one thread, one after the other** – no locks, n
 - **Storage**: `vibe_store_write/read/size/delete/list/read_at` – names `a-z 0-9 . _ -` (folders allowed). Never from
   `vibe_on_audio`. In the plugin the files live in the DAW project, per instance.
 
+## SDK 10: FOCUS – every control reachable with one knob and one button
+
+The standard for every firmware: whatever is on the display can be reached with **DATA** (turn) and **ENTER** (or DATA
+pressed) – for small controllers (an MPK mini: K5 + its wheel pressed). Declare where each control is drawn, every frame:
+
+```c
+void vibe_on_init(float sr) { /* … */ vf_mode(VF_ON_HOLD); }   // DATA has its own job here: ENTER held 0.6 s = FOCUS
+                                                                // (VF_ALWAYS, the default: DATA always walks)
+void vibe_on_draw(uint16_t *fb) {
+  /* … draw as always, then where each control is shown: */
+  vf_begin();
+  vf_value(1, 20, 60, 100, 40, &cutoff, 0, 1, 0.01f);   // a float you own: DATA changes it while editing
+  vf_button(2, 140, 60, 80, 30);                       // a button: ENTER -> VF_PRESS with id 2
+  vf_encoder(VE_1, 240, 60, 100, 40);                  // stands for encoder 1: DATA turns arrive as VE_1 turns
+  vf_key(VB_F1, 3, 286, 74, 30);                       // stands for F1: ENTER = F1 pressed and let go
+  vf_end(0xFF8A1F);                                    // draws the frame
+}
+void vibe_on_event(const vibe_event *e) {
+  int id, r = vf_event(e, &id);                        // FIRST
+  if (r == VF_PRESS && id == 2) start_stop();
+  if (r == VF_CHANGED && id == 1) filter_dirty = 1;    // the value is written already
+  if (r != VF_NO) return;
+  /* … your own controls as always */
+}
+```
+
+- The order of the calls is the order DATA walks. At most 64 controls a page; only what is drawn this frame is reachable.
+- `vf_encoder` / `vf_key` are the least work for an existing firmware: nothing else changes.
+- `vf_enable(0)` while a page uses DATA / ENTER itself (a list). With `VF_ON_HOLD`, a short ENTER still reaches you
+  (on release); a long one never does.
+- Full reference: `sdk/include/vibe_gfx.h`. A complete example: `firmwares/obervave-src/main.c` (`focus_items`).
+
 ## Patterns that work
 
 - **Voices**: a fixed `static voice V[N]`; note on → a free voice, else the oldest; per sample `vd_saw(phase, dt)` (band-
@@ -83,6 +115,8 @@ The host calls all four from **one thread, one after the other** – no locks, n
   (`vd_coef(seconds, sr)` is the one-pole factor: ~1/e of the way in that time).
 - **Display**: `vg_clear`, then `vg_rect` / `vg_round` / `vg_line` / `vg_text(s, x, y, font, 0xRRGGBB, align)`; fonts
   `VG_SMALL`, `VG_BOLD`, `VG_MED`, `VG_BIG`, `VG_HUGE`. Colours are `0xRRGGBB`; the screen is 480 x 320.
+- A full firmware to read: `firmwares/obervave-src/` (OberVave 3.1, GPL-3.0) – pages, sequencer, mixer, Editor, MIDI out,
+  FOCUS.
 - The examples are the best start: `examples/hello` (60 lines), `examples/example-synth` (a full synth with parameters and
   the song position), `examples/example-seq` (MIDI out, clock, its own Editor card and curve).
 

@@ -212,6 +212,74 @@ uint32_t vg_mix(uint32_t a, uint32_t b, float t) {
   return ((uint32_t)(ar + (br - ar) * t) << 16) | ((uint32_t)(ag + (bg - ag) * t) << 8) | (uint32_t)(ab + (bb - ab) * t);
 }
 
+/* ---- SDK 10: FOCUS (vibe_gfx.h) – the controls of the last frame, DATA walks them, ENTER uses them ---------------- */
+#define VF_MAX 64
+typedef struct { int id, x, y, w, h; float *v, lo, hi, step; } vf_item;
+static vf_item VF[VF_MAX], VFN[VF_MAX]; static int vf_n, vf_nn, vf_cur = -1, vf_edit, vf_off, vf_md, vf_on; static float vf_acc;
+static int vf_index(int id);
+void vf_mode(int m) { vf_md = m; vf_on = 0; vf_edit = 0; }
+int vf_active(void) { return vf_md == VF_ALWAYS || vf_on; }
+static void vf_toggle(void)                      /* VF_ON_HOLD: the long press */
+{
+  vf_on = !vf_on; vf_edit = 0; vf_acc = 0;
+  if (vf_on && vf_index(vf_cur) < 0 && vf_n) vf_cur = VF[0].id;   /* (on: the frame shows at once) */
+}
+void vf_begin(void) { vf_nn = 0; }
+static void vf_add(int id, int x, int y, int w, int h, float *v, float lo, float hi, float step)
+{ if (vf_nn < VF_MAX) { vf_item *t = &VFN[vf_nn++]; t->id = id; t->x = x; t->y = y; t->w = w; t->h = h; t->v = v; t->lo = lo; t->hi = hi; t->step = step; } }
+void vf_button(int id, int x, int y, int w, int h) { vf_add(id, x, y, w, h, 0, 0, 0, 0); }
+#define VF_ENC 0x40000000                        /* (ids of the stand-ins: never a firmware's own) */
+#define VF_KEY 0x40001000
+void vf_encoder(int enc, int x, int y, int w, int h) { vf_add(VF_ENC + enc, x, y, w, h, 0, 0, 0, 0); }
+void vf_key(int b, int x, int y, int w, int h) { vf_add(VF_KEY + b, x, y, w, h, 0, 0, 0, 0); }
+void vf_value(int id, int x, int y, int w, int h, float *v, float lo, float hi, float step) { vf_add(id, x, y, w, h, v, lo, hi, step); }
+static int vf_index(int id) { for (int i = 0; i < vf_n; i++) if (VF[i].id == id) return i; return -1; }
+void vf_end(uint32_t c)
+{
+  for (int i = 0; i < vf_nn; i++) VF[i] = VFN[i];
+  vf_n = vf_nn;
+  if (vf_off || vf_cur < 0 || !vf_active()) return;
+  int i = vf_index(vf_cur); if (i < 0) { vf_edit = 0; return; }   /* (its control is not on this page: no frame) */
+  const vf_item *t = &VF[i];
+  vg_frame(t->x - 2, t->y - 2, t->w + 4, t->h + 4, 2, c);
+  if (vf_edit) { vg_frame(t->x - 5, t->y - 5, t->w + 10, t->h + 10, 1, c); vg_tri(t->x - 9, t->y + t->h / 2 - 5, t->x - 9, t->y + t->h / 2 + 5, t->x - 4, t->y + t->h / 2, c); }
+}
+void vf_enable(int on) { vf_off = !on; if (vf_off) vf_edit = 0; }
+int vf_focus(void) { return vf_cur; }
+int vf_editing(void) { return vf_edit; }
+void vf_set_focus(int id) { vf_cur = id; vf_edit = 0; vf_acc = 0; }
+int vf_event(const vibe_event *e, int *id)
+{
+  if (vf_off || !vf_n || !vf_active()) return VF_NO;
+  int i = vf_index(vf_cur);
+  if (e->type == VIBE_EV_ENCODER && e->id == VE_DATA) {
+    if (vf_edit && i >= 0 && VF[i].id >= VF_ENC && VF[i].id < VF_KEY) {   /* editing a stand-in: the encoder turns */
+      vibe_event t = { VIBE_EV_ENCODER, (uint8_t)(VF[i].id - VF_ENC), 0, { 0, 0, 0 }, e->value }; vibe_on_event(&t); return VF_MOVED;
+    }
+    if (vf_edit && i >= 0 && VF[i].v) {          /* editing: DATA changes the value */
+      float *v = VF[i].v, n = *v + e->value * VF[i].step; if (n < VF[i].lo) n = VF[i].lo; if (n > VF[i].hi) n = VF[i].hi;
+      if (n == *v) return VF_MOVED;
+      *v = n; if (id) *id = VF[i].id; return VF_CHANGED;
+    }
+    if (i < 0) { vf_cur = VF[0].id; vf_acc = 0; return VF_MOVED; }   /* (the first turn: the frame appears on the first control) */
+    vf_acc += e->value;
+    while (vf_acc >= 1) { vf_acc -= 1; if (i < vf_n - 1) i++; }
+    while (vf_acc <= -1) { vf_acc += 1; if (i > 0) i--; }
+    vf_cur = VF[i].id; return VF_MOVED;
+  }
+  if (e->type != VIBE_EV_BUTTON) return VF_NO;
+  if (e->id == VB_RETURN && vf_edit) { if (e->down) vf_edit = 0; return VF_MOVED; }
+  if (e->id == VB_RETURN && vf_md == VF_ON_HOLD) { if (e->down) vf_on = 0; return VF_MOVED; }   /* (FOCUS off: DATA is the firmware's again) */
+  if (e->id != VB_ENTER && e->id != VB_DATA_PUSH) return VF_NO;
+  if (i < 0) return VF_NO;                       /* (no frame yet: ENTER stays the firmware's) */
+  if (!e->down) return VF_MOVED;
+  if (VF[i].v || (VF[i].id >= VF_ENC && VF[i].id < VF_KEY)) { vf_edit = !vf_edit; return VF_MOVED; }
+  if (VF[i].id >= VF_KEY) {                      /* a stand-in key: pressed and let go */
+    vibe_event t = { VIBE_EV_BUTTON, (uint8_t)(VF[i].id - VF_KEY), 1, { 0, 0, 0 }, 0 }; vibe_on_event(&t); t.down = 0; vibe_on_event(&t); return VF_MOVED;
+  }
+  if (id) *id = VF[i].id; return VF_PRESS;
+}
+
 /* ================================================================ 3. sound maths ================================= */
 typedef union { float f; uint32_t i; } fbits;
 float vd_sin(float ph) {
@@ -496,8 +564,22 @@ VIBE_EXPORT(vibe_wasm_editor_points) const float *vibe_wasm_editor_points(void) 
 static char ed_tabbuf[32];                        /* (the host writes the tab's name here and passes its address to _curve) */
 VIBE_EXPORT(vibe_wasm_editor_tabbuf) char *vibe_wasm_editor_tabbuf(void) { return ed_tabbuf; }
 
+/* SDK 10, VF_ON_HOLD: ENTER / DATA pressed held back until let go – short: to the firmware, long (0.6 s): FOCUS on / off */
+static int vf_hold = -1, vf_fired; static uint64_t vf_hold_t;
+static void vf_hold_check(void)
+{
+  if (vf_hold >= 0 && !vf_fired && vibe_frames() - vf_hold_t > (uint64_t)(sdk_sr * 0.6f)) { vf_fired = 1; vf_toggle(); }
+}
 VIBE_EXPORT(vibe_wasm_event) void vibe_wasm_event(int type, int id, int down, float value, int midi) {
   vibe_event e = { (uint8_t)type, (uint8_t)id, (uint8_t)down, { (uint8_t)(midi & 255), (uint8_t)((midi >> 8) & 255), (uint8_t)((midi >> 16) & 255) }, value };
+  vf_hold_check();
+  if (vf_md == VF_ON_HOLD && type == VIBE_EV_BUTTON && (id == VB_ENTER || id == VB_DATA_PUSH)) {
+    if (down) { if (vf_hold < 0) { vf_hold = id; vf_hold_t = vibe_frames(); vf_fired = 0; } return; }
+    if (id != vf_hold) return;
+    int fired = vf_fired; vf_hold = -1;
+    if (fired) return;                            /* (the long press was FOCUS', the firmware never saw it) */
+    e.down = 1; vibe_on_event(&e); e.down = 0;    /* a short press: down and up together */
+  }
   if (type == VIBE_EV_TRANSPORT && id == VIBE_TRANSPORT_TEMPO) host_bpm = value > 0.0f ? value : 0.0f;   /* (SDK 9: a host leads – our clock out stays silent) */
   if (notes_take(&e)) return;
   vibe_on_event(&e);
@@ -521,7 +603,7 @@ VIBE_EXPORT(vibe_wasm_audio) void vibe_wasm_audio(int frames, int has_input) {
   }
 }
 VIBE_EXPORT(vibe_wasm_rear) void *vibe_wasm_rear(void) { return &rear; }
-VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vg_begin(framebuffer); vibe_on_draw(framebuffer); return framebuffer; }
+VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); vg_begin(framebuffer); vibe_on_draw(framebuffer); return framebuffer; }
 VIBE_EXPORT(vibe_wasm_leds) void *vibe_wasm_leds(void) { return &leds; }
 VIBE_EXPORT(vibe_wasm_labels) void *vibe_wasm_labels(void) { return labels; }   /* VB_COUNT x 8 chars */
 #endif /* VIBE_HOST_ONLY */

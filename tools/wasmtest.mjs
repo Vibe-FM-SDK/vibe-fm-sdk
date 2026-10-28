@@ -40,7 +40,7 @@ const L = new Float32Array(total * block), R = new Float32Array(total * block);
 const outT = e.vibe_wasm_outputs ? e.vibe_wasm_outputs() : 0, CL = new Float32Array(total * block), CR = new Float32Array(total * block); let cueBlocks = 0;
 if (outT) new DataView(e.memory.buffer).setInt32(outT + 4, script.cue ? 1 : 0, true);   // (host_cue)
 const steps = (script.steps || []).slice().sort((a, b) => a.t - b.t);
-let drawMs = 0, draws = 0, audioMs = 0;
+let drawMs = 0, draws = 0, audioMs = 0, drawMax = 0;
 const midiOut = [];   // SDK 9 (Protokoll 7.4): the firmware's MIDI out queue, drained after every block
 function midiDrain(b) {
   if (!e.vibe_wasm_midi_out) return;
@@ -92,7 +92,7 @@ for (let b = 0; b < total; b++) {
   if (outT) { const dv = new DataView(e.memory.buffer); if ((dv.getInt32(outT, true) & 2) && dv.getInt32(outT + 8, true)) { cueBlocks++; const c = new Float32Array(e.memory.buffer, outT + 20, 512); CL.set(c.subarray(0, block), b * block); CR.set(c.subarray(256, 256 + block), b * block); } }
   const io = new Float32Array(e.memory.buffer, e.vibe_wasm_io(), 256 * 3);
   L.set(io.subarray(256, 256 + block), b * block); R.set(io.subarray(512, 512 + block), b * block);
-  if (b % 12 === 0 || shots.length) { const t1 = performance.now(); const fb = e.vibe_wasm_draw(); drawMs += performance.now() - t1; draws++;
+  if (b % 12 === 0 || shots.length) { const t1 = performance.now(); const fb = e.vibe_wasm_draw(); const dt = performance.now() - t1; drawMs += dt; if (dt > drawMax) drawMax = dt; draws++;
     while (shots.length) png(new Uint16Array(e.memory.buffer, fb, 480 * 320), `${outDir}/${shots.shift()}.png`); }
 }
 let peak = 0, nan = 0, sum = 0;
@@ -101,7 +101,7 @@ wav(`${outDir}/audio.wav`);
 if (cueBlocks) { const sl = L.slice(), sr2 = R.slice(); L.set(CL); R.set(CR); wav(`${outDir}/cue.wav`); L.set(sl); R.set(sr2); }
 if (midiOut.length) fs.writeFileSync(`${outDir}/midi.json`, JSON.stringify(midiOut));
 console.log(JSON.stringify({ peak: +peak.toFixed(3), rms: +Math.sqrt(sum / L.length).toFixed(4), nan,
-  cpu_audio_percent: +(audioMs / (script.seconds * 1000) * 100).toFixed(1), draw_ms: +(drawMs / draws).toFixed(2), midi_out: midiOut.length, cue_blocks: cueBlocks, logs, requests }));
+  cpu_audio_percent: +(audioMs / (script.seconds * 1000) * 100).toFixed(1), draw_ms: +(drawMs / draws).toFixed(2), draw_max_ms: +drawMax.toFixed(2), midi_out: midiOut.length, cue_blocks: cueBlocks, logs, requests }));
 
 function png(px, file) {
   const raw = Buffer.alloc(320 * 1441);
