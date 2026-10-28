@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: Apache-2.0 – Copyright 2026 Sven Trogus (zvenson). VIBE FM SDK, see sdk/LICENSE and sdk/NOTICE.
-// vibe-check – does a firmware keep the VIBE FM Protokoll (docs/protokoll.md)? Stage 1: the parts that need no
+// vibe-check – does a firmware keep the VIBE FM Protocol? Stage 1: the parts that need no
 // listening – format, robustness, realtime rules, storage, report. (Block sizes and sample rates come next.)
 //   node tools/vibe-check.mjs build/groove.wasm [--manifest firmware/groove/firmware.json] [--seconds 60] [--json]
 // Exit code 0 = passed, 1 = failed, 2 = could not run.

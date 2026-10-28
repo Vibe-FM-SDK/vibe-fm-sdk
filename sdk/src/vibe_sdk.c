@@ -287,7 +287,7 @@ static struct { float in[VIBE_MAX_BLOCK], l[VIBE_MAX_BLOCK], r[VIBE_MAX_BLOCK], 
 static uint16_t framebuffer[W * H];
 
 VIBE_EXPORT(vibe_sdk_version) int vibe_sdk_version(void) { return VIBE_HOST_PROTOCOL; }   /* (the host protocol: 7 – SDK 8 adds only optional exports) */
-/* SDK 5: the time table the host fills (docs/protokoll.md 7.1), the frame counter, the flows */
+/* SDK 5: the time table the host fills (VIBE FM Protocol 7.1), the frame counter, the flows */
 static struct { uint32_t heard_lo, heard_hi, latency_out, latency_in, flags, pad[3]; } vtime;
 static volatile uint32_t frames_lo, frames_hi, frames_seq;   /* written by the audio flow only (a seqlock: odd = busy) */
 uint64_t vibe_frames(void)

@@ -3,14 +3,16 @@
  * vibe.h – the VIBE FM SDK: the one contract between a firmware and the hardware it runs on.
  *
  * A firmware is plain C. It implements the four vibe_on_* functions below and may call the vibe_* functions
- * the SDK provides. It never talks to hardware directly. The same firmware source therefore runs
- *   - in the browser (compiled to WebAssembly, runtime/web), and
- *   - on the device (compiled for ARM Linux, runtime/linux – planned).
+ * the SDK provides. It never talks to hardware directly. The same .wasm therefore runs in VIBE FM VST (your DAW),
+ * in the browser and on the VIBE FM hardware.
  *
- * Threading: the runtime calls every vibe_on_* function from ONE thread, one after the other
+ * Threading: the host calls every vibe_on_* function from ONE thread, one after the other
  * (events, then an audio block, now and then a draw). A firmware needs no locks.
+ * Sample rate and block size are the host's: vibe_on_init gets the rate (the DAW's – 44.1, 48, 96 kHz …), and
+ * `frames` in vibe_on_audio varies from call to call (1..VIBE_MAX_BLOCK). Never assume 128 or 48000.
  * SDK 5: a firmware may allow vibe_on_audio to run IN PARALLEL with events and draw (VIBE_PARALLEL_AUDIO below) –
- * then the display never holds up the sound. Its rules: docs/protokoll.md 6.2.
+ * then the display never holds up the sound. Its rules are in the VIBE FM Protocol specification (coming to this
+ * repository in English); leave it off until then.
  */
 #ifndef VIBE_H
 #define VIBE_H
@@ -37,7 +39,8 @@
 /* ---- the device ---------------------------------------------------------------------------------------------- */
 #define VIBE_SCREEN_W   480        /* 3.5" colour display, RGB565 */
 #define VIBE_SCREEN_H   320
-#define VIBE_MAX_BLOCK  256        /* the runtime asks for at most this many audio frames per call (web: 128) */
+#define VIBE_MAX_BLOCK  256        /* the host asks for at most this many audio frames per call – usually fewer, and
+                                      not always the same number (the browser: 128, a DAW: its buffer, split at events) */
 #define VIBE_PADS       16
 #define VIBE_KEYS       25         /* key 0 = lowest C; octave shifting is the firmware's business */
 
@@ -138,8 +141,9 @@ void  vibe_param_set(int index, float value);                          /* the fi
 float vibe_param_get(int index);                                       /* its current value */
 
 /* ---- the host's position (SDK 8): where in the song – the DAW in the plugin; elsewhere what a MIDI clock tells ------
-   Valid inside vibe_on_audio, for this block's first frame. A host that gives none (an older one, the device without a
-   clock): has = 0, the rest as the firmware's own. With it, a sequencer starts in the right place and follows loops. */
+   The values of the current audio block (inside vibe_on_audio: this block's first frame; in vibe_on_event / vibe_on_draw:
+   the last block's – fine for the display). A host that gives none (an older one, the device without a clock): has = 0,
+   the rest as the firmware's own. With it, a sequencer starts in the right place and follows loops. */
 typedef struct {
   int32_t has;                /* 1 = the host fills this (else: only VIBE_EV_TRANSPORT as before) */
   int32_t playing;            /* 1 = the host plays */
@@ -167,6 +171,8 @@ float vibe_cv_in(void);                                                /* -5..+5
 
 /* storage (SDK 3): named files that stay when the device is switched off – projects, sounds, samples. Every firmware
    has its own space. Browser: the browser's storage (IndexedDB, per site), device: the microSD.
+   Where they live: in VIBE FM VST inside the DAW project, per plugin instance (two instances of your synth keep two
+   sets of sounds, and they travel with the song); in the browser in IndexedDB (per site); on the device on the microSD.
    name: 1-31 characters a-z 0-9 . _ -  (SDK 4: may hold folders, e.g. "grace/06-hallelujah.mp3" – up to 4 folders,
    parts of 1-63 characters, 127 in all; vibe_store_list gives the full paths). Reading and writing are synchronous. On the device a big write takes a
    few milliseconds: write from vibe_on_event (a SAVE button), never from vibe_on_audio. */
@@ -195,7 +201,7 @@ int vibe_latency_in(void);      /* frames from IN 1/IN 2 to vibe_on_audio; 0 = u
 
 /* ---- two flows (SDK 5) ---------------------------------------------------------------------------------------- */
 /* Written once at file scope: vibe_on_audio may run at the same time as vibe_on_event / vibe_on_draw (in another
-   thread). Only if the firmware keeps docs/protokoll.md 6.2: between the two only single-writer values of <= 32 bit
+   thread). Only if the firmware keeps the Protocol's rules for two flows (6.2): between the two only single-writer values of <= 32 bit
    and single-reader/single-writer queues; data first, then VIBE_RELEASE(), then the flag / counter; the reader:
    flag / counter, VIBE_ACQUIRE(), then the data. No log, store, request, lights, labels or drawing from vibe_on_audio. */
 #define VIBE_PARALLEL_AUDIO int vibe_on_flows(void) { return 2; }

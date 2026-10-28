@@ -43,7 +43,7 @@ void vibe_on_draw(uint16_t *fb) {
   (void)fb;
   vg_clear(0x0B1220);
   vg_text("HELLO VIBE", 240, 70, VG_BIG, 0xFF6A1A, VG_CENTER);
-  vg_text("Tasten spielen · Encoder 1 = Pitch · HOME = Firmware", 240, 112, VG_SMALL, 0x8A93A6, VG_CENTER);
+  vg_text("play the keys · encoder 1 = pitch · HOME = firmware menu", 240, 112, VG_SMALL, 0x8A93A6, VG_CENTER);
   vg_text(last_key < 0 ? "–" : vg_itoa(60 + last_key, buf), 240, 150, VG_HUGE, 0xE6EAF2, VG_CENTER);
   vg_text(vg_ftoa(bend, 2, buf), 240, 230, VG_MED, 0x6EE7A8, VG_CENTER);
   for (int i = 0; i < VIBE_PADS; i++) vg_round(84 + i * 20, 270, 14, 14, 3, held[i] ? 0xFF6A1A : 0x24314A);
