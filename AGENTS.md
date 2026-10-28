@@ -5,6 +5,18 @@ WebAssembly file. The same `.wasm` runs as a VST3 / AU / CLAP plugin (VIBE FM VS
 natively on the VIBE FM hardware. Read this file first, then the headers in `sdk/include/` – they are the reference, every
 function is documented where it is declared. When this file and a header disagree, the header wins.
 
+## House rules – every VIBE FM firmware (people and AIs alike)
+
+1. **It plays at once.** Sound on the keys and pads right after start, no setup first.
+2. **The layout is the house layout:** full width, big type. The six keys right of ENTER are **SOUND · ENV · LFO · ARP ·
+   FX · SEQ** where it fits, encoders 1–4 are the four values shown above F1–F6, and F1–F6 have their captions on the display.
+3. **FOCUS (SDK 10):** every control on the display is reachable with DATA + ENTER (`vf_*`). If DATA already has a
+   job, use `vf_mode(VF_ON_HOLD)`.
+4. **HOME is the firmware library's:** call `vibe_request(VIBE_REQ_FIRMWARE_MENU)`.
+5. **No clicks, ever:** nothing heavy in `vibe_on_audio`, and nothing long in `vibe_on_draw`. On the VIBE, drawing and
+   sound share one flow. `wasmtest` reports `draw_max_ms`, which should stay at a few ms.
+6. **`vibe-check` passes before you call it done.**
+
 ## The shape of a firmware
 
 A firmware is a folder with one or more `.c` files and a `firmware.json`. It implements exactly four functions:
