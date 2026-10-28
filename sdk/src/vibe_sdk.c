@@ -289,6 +289,7 @@ static uint16_t framebuffer[W * H];
 VIBE_EXPORT(vibe_sdk_version) int vibe_sdk_version(void) { return VIBE_HOST_PROTOCOL; }   /* (the host protocol: 7 – SDK 8 adds only optional exports) */
 /* SDK 5: the time table the host fills (VIBE FM Protocol 7.1), the frame counter, the flows */
 static struct { uint32_t heard_lo, heard_hi, latency_out, latency_in, flags, pad[3]; } vtime;
+static float sdk_sr = 48000.0f;                               /* (SDK 9: the rate, for the clock out) */
 static volatile uint32_t frames_lo, frames_hi, frames_seq;   /* written by the audio flow only (a seqlock: odd = busy) */
 uint64_t vibe_frames(void)
 {
@@ -307,7 +308,7 @@ int vibe_latency_in(void) { return (int)vtime.latency_in; }
 __attribute__((weak)) int vibe_on_flows(void) { return 1; }   /* VIBE_PARALLEL_AUDIO in a firmware: 2 */
 VIBE_EXPORT(vibe_wasm_time) void *vibe_wasm_time(void) { return &vtime; }
 VIBE_EXPORT(vibe_wasm_flows) int vibe_wasm_flows(void) { return vibe_on_flows(); }
-VIBE_EXPORT(vibe_wasm_init) void vibe_wasm_init(float sr) { vibe_on_init(sr); }
+VIBE_EXPORT(vibe_wasm_init) void vibe_wasm_init(float sr) { sdk_sr = sr > 0.0f ? sr : 48000.0f; vibe_on_init(sr); }
 /* ---- SDK 8: notes – the keys, the pads and MIDI's note on / off become VIBE_EV_NOTE (vibe_notes) -------------------- */
 static int notes_flags, keys_oct = 1;
 static int8_t key_note[VIBE_KEYS], pad_note[VIBE_PADS];   /* the note each held key / pad started (-1 = none) */
@@ -389,8 +390,115 @@ static vibe_transport_info vtransport = { 0, 0, 0.0f, 4, 4, 0.0, 0.0, 0, 0.0, 0.
 const vibe_transport_info *vibe_transport(void) { return &vtransport; }
 VIBE_EXPORT(vibe_wasm_transport) void *vibe_wasm_transport(void) { return &vtransport; }
 
+/* ---- SDK 9: MIDI out – a queue in the firmware's memory the host drains after every audio block (Protokoll 7.4) ----
+   One writer (the firmware, or the SDK's clock), one reader (the host): data, VIBE_RELEASE, then the counter (6.2).
+   Layout (wasm32): w @0 · r @4 · dropped @8 · sysex_len @12 · q[256] @16 (6 bytes each: frame u16, st, d1, d2, len) ·
+   sysex[256] @1552. A message with len 0 and st 0xF0 is the SysEx buffer (sysex_len bytes, F0 … F7). */
+typedef struct { uint16_t frame; uint8_t st, d1, d2, len; } vibe_midi_msg;
+#define MOUT_N 256
+static struct { volatile uint32_t w, r, dropped, sysex_len; vibe_midi_msg q[MOUT_N]; uint8_t sysex[256]; } mout;
+static int mout_in_audio, mout_frames = 1;          /* inside vibe_on_audio: this block's length (for _at) */
+static int mout_push(int st, int d1, int d2, int len, int frame)
+{
+  uint32_t w = mout.w;
+  if (w - mout.r >= MOUT_N) { mout.dropped++; return -1; }
+  if (frame < 0) frame = 0; else if (frame >= mout_frames) frame = mout_frames - 1;
+  vibe_midi_msg *m = &mout.q[w % MOUT_N];
+  m->frame = (uint16_t)frame; m->st = (uint8_t)st; m->d1 = (uint8_t)d1; m->d2 = (uint8_t)d2; m->len = (uint8_t)len;
+  VIBE_RELEASE(); mout.w = w + 1u;
+  return 0;
+}
+static int midi_len(int st) { int h = st & 0xF0; return st >= 0xF8 ? 1 : h == 0xC0 || h == 0xD0 ? 2 : st == 0xF1 || st == 0xF3 ? 2 : st == 0xF2 ? 3 : st == 0xF6 ? 1 : st < 0xF0 ? 3 : 0; }
+int vibe_midi_send_at(uint8_t st, uint8_t d1, uint8_t d2, int frame)
+{
+  int n = midi_len(st);
+  if (st < 0x80 || !n || (n > 1 && d1 > 127) || (n > 2 && d2 > 127)) return -1;
+  return mout_push(st, n > 1 ? d1 : 0, n > 2 ? d2 : 0, n, mout_in_audio ? frame : 0);
+}
+int vibe_midi_send(uint8_t st, uint8_t d1, uint8_t d2) { return vibe_midi_send_at(st, d1, d2, 0); }
+int vibe_midi_send_sysex(const uint8_t *b, int n)
+{
+  if (!b || n < 2 || n > 256 || b[0] != 0xF0 || b[n - 1] != 0xF7 || mout_in_audio) return -1;
+  if (mout.w - mout.r >= MOUT_N || mout.sysex_len) return -1;   /* (one SysEx at a time: the host takes it with the block) */
+  for (int i = 0; i < n; i++) mout.sysex[i] = b[i];
+  mout.sysex_len = (uint32_t)n;
+  return mout_push(0xF0, 0, 0, 0, 0);
+}
+VIBE_EXPORT(vibe_wasm_midi_out) void *vibe_wasm_midi_out(void) { return &mout; }
+/* the clock: 24 pulses a quarter at the firmware's tempo, made frame-exact before each block; silent while a host leads */
+static int clk_on, clk_run; static float own_bpm = 120.0f, host_bpm; static double clk_phase;
+void  vibe_clock_out(int on) { clk_on = on != 0; if (!on) clk_phase = 0.0; }
+void  vibe_tempo_set(float bpm) { own_bpm = bpm < 20.0f ? 20.0f : bpm > 400.0f ? 400.0f : bpm; }
+float vibe_tempo_get(void) { return own_bpm; }
+void  vibe_transport_out(int playing)
+{
+  if (playing) { clk_phase = 1.0; clk_run = 1; mout_push(0xFA, 0, 0, 1, 0); }   /* (phase 1: the first F8 on the next block's frame 0) */
+  else { clk_run = 0; mout_push(0xFC, 0, 0, 1, 0); }
+}
+static void clk_block(int frames)
+{
+  if (!clk_on || host_bpm > 0.0f || (vtransport.has && vtransport.playing && vtransport.bpm > 0.0f)) { clk_phase = 0.0; return; }
+  double per = (double)own_bpm * 24.0 / 60.0 / (double)sdk_sr;   /* pulses a frame */
+  for (int f = 0; f < frames; f++) {
+    clk_phase += per;
+    if (clk_phase >= 1.0) { clk_phase -= 1.0; mout_push(0xF8, 0, 0, 1, f); }
+  }
+  (void)clk_run;
+}
+
+/* ---- SDK 9: outputs – dual mono and the headphones' own signal (Protokoll 8.1). The host reads the table once after
+   init (flags, names) and the cue buffers after each block; it writes host_cue (1 = it plays the cue on its own outputs).
+   Layout (wasm32): flags @0 · host_cue @4 · cue_written @8 (this block) · name_l @12, name_r @16 (ptr) · cue @20: 2 x 256 f32 */
+static struct { int32_t flags, host_cue; volatile int32_t cue_written; const char *name_l, *name_r; float cue[2][VIBE_MAX_BLOCK]; } vout;
+void  vibe_outputs(int flags) { vout.flags = flags & (VIBE_OUT_DUAL_MONO | VIBE_OUT_CUE); }
+void  vibe_output_names(const char *l, const char *r) { vout.name_l = l; vout.name_r = r; }
+float *vibe_cue(int c) { if (!(vout.flags & VIBE_OUT_CUE) || c < 0 || c > 1) return 0; vout.cue_written = 1; return vout.cue[c]; }
+int   vibe_cue_host(void) { return vout.host_cue; }
+VIBE_EXPORT(vibe_wasm_outputs) void *vibe_wasm_outputs(void) { return &vout; }
+
+/* ---- SDK 9: the Editor's description – tables the host reads once after vibe_on_init (Protokoll 9.2) ---------------- */
+typedef struct { const char *tab; uint32_t rgb; } vibe_tab_color;
+static struct {
+  uint32_t version;                 /* 1 */
+  const vibe_card *cards; int32_t ncards;
+  const uint8_t *controls;          /* VIBE_MAX_PARAMS (enum vibe_control) */
+  uint32_t accent;                  /* 0 = none */
+  const vibe_tab_color *tabs; int32_t ntabs;
+  const char *const *help;          /* VIBE_MAX_PARAMS pointers */
+  int32_t ncurves;
+} ed;
+static uint8_t ed_ctl[VIBE_MAX_PARAMS]; static const char *ed_help[VIBE_MAX_PARAMS];
+static vibe_tab_color ed_tabc[8];
+static struct { const char *card; vibe_curve_fn fn; } ed_curve[16];
+static float ed_pts[64];
+void vibe_editor_cards(const vibe_card *c, int n) { ed.version = 1; ed.cards = c; ed.ncards = n < 0 ? 0 : n > 64 ? 64 : n; }
+void vibe_editor_control(int i, int c) { if (i >= 0 && i < VIBE_MAX_PARAMS && c >= 0 && c <= VIBE_CTL_XY_Y) { ed.version = 1; ed_ctl[i] = (uint8_t)c; ed.controls = ed_ctl; } }
+void vibe_editor_accent(uint32_t rgb) { ed.version = 1; ed.accent = rgb & 0xFFFFFFu; }
+void vibe_editor_tab_color(const char *t, uint32_t rgb)
+{
+  if (!t) return;
+  for (int i = 0; i < ed.ntabs; i++) if (ed_tabc[i].tab == t) { ed_tabc[i].rgb = rgb & 0xFFFFFFu; return; }
+  if (ed.ntabs < 8) { ed_tabc[ed.ntabs].tab = t; ed_tabc[ed.ntabs].rgb = rgb & 0xFFFFFFu; ed.ntabs++; ed.tabs = ed_tabc; ed.version = 1; }
+}
+void vibe_editor_curve(const char *card, vibe_curve_fn fn) { if (card && fn && ed.ncurves < 16) { ed_curve[ed.ncurves].card = card; ed_curve[ed.ncurves].fn = fn; ed.ncurves++; ed.version = 1; } }
+void vibe_param_help(int i, const char *t) { if (i >= 0 && i < VIBE_MAX_PARAMS) { ed.version = 1; ed_help[i] = t; ed.help = ed_help; } }
+VIBE_EXPORT(vibe_wasm_editor) const void *vibe_wasm_editor(void) { return ed.version ? (const void *)&ed : 0; }
+VIBE_EXPORT(vibe_wasm_editor_curve_card) const char *vibe_wasm_editor_curve_card(int i) { return i >= 0 && i < ed.ncurves ? ed_curve[i].card : 0; }
+VIBE_EXPORT(vibe_wasm_editor_curve) int vibe_wasm_editor_curve(int i, const char *tab)   /* fills vibe_wasm_editor_points(); returns their count */
+{
+  if (i < 0 || i >= ed.ncurves) return 0;
+  int n = ed_curve[i].fn(tab ? tab : "", ed_curve[i].card, ed_pts, 64);
+  if (n < 2) return 0; if (n > 64) n = 64;
+  for (int k = 0; k < n; k++) ed_pts[k] = ed_pts[k] < 0.0f ? 0.0f : ed_pts[k] > 1.0f ? 1.0f : ed_pts[k];
+  return n;
+}
+VIBE_EXPORT(vibe_wasm_editor_points) const float *vibe_wasm_editor_points(void) { return ed_pts; }
+static char ed_tabbuf[32];                        /* (the host writes the tab's name here and passes its address to _curve) */
+VIBE_EXPORT(vibe_wasm_editor_tabbuf) char *vibe_wasm_editor_tabbuf(void) { return ed_tabbuf; }
+
 VIBE_EXPORT(vibe_wasm_event) void vibe_wasm_event(int type, int id, int down, float value, int midi) {
   vibe_event e = { (uint8_t)type, (uint8_t)id, (uint8_t)down, { (uint8_t)(midi & 255), (uint8_t)((midi >> 8) & 255), (uint8_t)((midi >> 16) & 255) }, value };
+  if (type == VIBE_EV_TRANSPORT && id == VIBE_TRANSPORT_TEMPO) host_bpm = value > 0.0f ? value : 0.0f;   /* (SDK 9: a host leads – our clock out stays silent) */
   if (notes_take(&e)) return;
   vibe_on_event(&e);
 }
@@ -398,7 +506,11 @@ VIBE_EXPORT(vibe_wasm_io) float *vibe_wasm_io(void) { return io.in; }       /* i
 /* has_input: bit 0 = IN 1, bit 1 = IN 2 */
 VIBE_EXPORT(vibe_wasm_audio) void vibe_wasm_audio(int frames, int has_input) {
   inputs[0] = (has_input & 1) ? io.in : 0; inputs[1] = (has_input & 2) ? io.in2 : 0;
+  mout_frames = frames > 0 ? frames : 1; clk_block(mout_frames);   /* (SDK 9: the clock's pulses of this block, then the firmware's MIDI) */
+  if (vout.flags & VIBE_OUT_CUE) { for (int i = 0; i < mout_frames && i < VIBE_MAX_BLOCK; i++) vout.cue[0][i] = vout.cue[1][i] = 0.0f; vout.cue_written = 0; }
+  mout_in_audio = 1;
   vibe_on_audio(inputs[0], io.l, io.r, frames);
+  mout_in_audio = 0;
   inputs[0] = inputs[1] = 0;
   {                                             /* the timeline moves on */
     uint32_t l = frames_lo + (uint32_t)frames;

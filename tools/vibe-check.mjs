@@ -82,7 +82,7 @@ if (badImp.length || missing.length) report();
 // ---------------------------------------------------------------- a host that watches ----------------------------------
 const NAME = /^(?:[a-z0-9_-][a-z0-9._-]{0,30}|(?=.{1,127}$)[a-z0-9_-][a-z0-9._-]{0,62}(?:\/[a-z0-9_-][a-z0-9._-]{0,62}){1,4})$/;   // SDK 4: paths
 function host(files) {
-  const h = { files, inAudio: false, audioStore: 0, audioLog: 0, logs: [], requests: [], badNames: 0, reads: 0, writes: 0, inst: null };
+  const h = { files, inAudio: false, audioStore: 0, audioLog: 0, logs: [], requests: [], badNames: 0, reads: 0, writes: 0, inst: null, midi: { n: 0, bad: 0, clock: 0 } };
   const mem = () => h.inst.exports.memory.buffer, str = (p, n) => Buffer.from(mem(), p, n).toString();
   h.inst = new WebAssembly.Instance(mod, { env: {
     vibe_host_log: (p, n) => { if (h.inAudio) h.audioLog++; if (h.logs.length < 50) h.logs.push(str(p, n)); },
@@ -121,6 +121,20 @@ function hunt(x, what) {
     }
   }
 }
+// SDK 9 (Protocol 7.4): the firmware's MIDI out queue, drained after a block as a host does – bytes checked, counters kept
+function midiDrain(h, x) {
+  if (!x.vibe_wasm_midi_out) return;
+  const base = x.vibe_wasm_midi_out(), dv = new DataView(x.memory.buffer), w = dv.getUint32(base, true);
+  let r = dv.getUint32(base + 4, true);
+  for (; r !== w; r = (r + 1) >>> 0) {
+    const q = base + 16 + (r % 256) * 6, st = dv.getUint8(q + 2), d1 = dv.getUint8(q + 3), d2 = dv.getUint8(q + 4), len = dv.getUint8(q + 5), frame = dv.getUint16(q, true);
+    h.midi.n++;
+    if (!len && st === 0xF0) { const n = dv.getUint32(base + 12, true); if (n < 2 || n > 256) h.midi.bad++; dv.setUint32(base + 12, 0, true); continue; }
+    if (st < 0x80 || len < 1 || len > 3 || (len > 1 && d1 > 127) || (len > 2 && d2 > 127) || frame >= BLOCK) h.midi.bad++;
+    if (st === 0xF8) h.midi.clock++;
+  }
+  dv.setUint32(base + 4, w, true);
+}
 // one run: init, then blocks with events in between, a draw every 12 blocks. Returns what happened.
 function run(h, seconds, fuzz) {
   const x = h.inst.exports, out = { trap: null, nan: 0, ms: [], grew: false, peak: 0, version: 0 };
@@ -135,6 +149,7 @@ function run(h, seconds, fuzz) {
       if (fuzz && rnd() < 0.05) { const io4 = new Float32Array(x.memory.buffer, io, 1024); for (let i = 0; i < BLOCK; i++) { io4[i] = rnd() * 2 - 1; io4[768 + i] = rnd() * 2 - 1; } }
       const has = fuzz && out.version >= 2 ? pick(4) : 0;
       h.inAudio = true; const t0 = performance.now(); x.vibe_wasm_audio(BLOCK, has); out.ms.push(performance.now() - t0); h.inAudio = false; hunt(x, `audio block ${b}`);
+      midiDrain(h, x);
       const f = new Float32Array(x.memory.buffer, io, 768);
       for (let i = 0; i < BLOCK; i++) { const l = f[256 + i], r = f[512 + i]; if (!Number.isFinite(l) || !Number.isFinite(r)) { if (!out.nan++) { out.nanAt = b; out.nanLast = last.slice(); out.nanIn = has; } } else out.peak = Math.max(out.peak, Math.abs(l), Math.abs(r)); }
       if (b % 12 === 0) { x.vibe_wasm_draw(); hunt(x, `draw (block ${b})`); x.vibe_wasm_leds(); hunt(x, `leds (block ${b})`); }
@@ -228,6 +243,35 @@ else if (!files.size) check('Storage', null, `not checked – the firmware saved
 else {
   const h2 = host(new Map(files)), r2 = run(h2, 3, false);
   check('Storage', !r2.trap && !r2.nan, r2.trap ? 'crash on start with its own files: ' + r2.trap : `restart with ${files.size} own files (${[...files.values()].reduce((a, f) => a + f.length, 0)} bytes) without errors, ${h2.reads} read`);
+}
+// ---------------------------------------------------------------- SDK 9: MIDI out and the Editor's description ---------
+if (exports.get('vibe_wasm_midi_out') === 'function') {
+  const base = h1.inst.exports.vibe_wasm_midi_out(), dropped = new DataView(h1.inst.exports.memory.buffer).getUint32(base + 8, true);
+  if (!h1.midi.n && !dropped) check('MIDI out', null, 'nothing sent during the random playing');
+  else {
+    check('MIDI out', !dropped, dropped ? `${dropped} messages dropped – the queue (256 a block) overflowed` : `${h1.midi.n} messages, none dropped` + (h1.midi.clock ? ` (${h1.midi.clock} clock)` : ''));
+    check('MIDI out', !h1.midi.bad, h1.midi.bad ? `${h1.midi.bad} bad messages (status < 0x80, a data byte >= 0x80 or a frame outside the block)` : 'all messages valid');
+  }
+}
+if (exports.get('vibe_wasm_editor') === 'function') {
+  const x = h1.inst.exports, ed = x.vibe_wasm_editor();
+  if (!ed) check('Editor', null, 'no Editor description (one card per group, as in SDK 8)');
+  else {
+    const dv = new DataView(x.memory.buffer), u8 = new Uint8Array(x.memory.buffer);
+    const cstr = (p) => { if (!p) return null; let n = 0; while (n < 256 && u8[p + n]) n++; return Buffer.from(x.memory.buffer, p, n).toString(); };
+    const cards = dv.getUint32(ed + 4, true), ncards = dv.getInt32(ed + 8, true), ctl = dv.getUint32(ed + 12, true), tabs = dv.getUint32(ed + 20, true), ntabs = dv.getInt32(ed + 24, true), help = dv.getUint32(ed + 28, true), ncurves = dv.getInt32(ed + 32, true);
+    const np = x.vibe_wasm_param_count ? x.vibe_wasm_param_count() : 0, groups = [];
+    for (let i = 0; i < np; i++) { const g = x.vibe_wasm_param_group ? cstr(x.vibe_wasm_param_group(i)) || '' : ''; const k = g.indexOf(' · '); groups.push({ tab: k > 0 ? g.slice(0, k) : '', card: (k > 0 ? g.slice(k + 3) : g) || 'PARAMETERS' }); }
+    const known = new Set(groups.map((g) => g.card)), bad = [];
+    for (let i = 0; i < ncards; i++) { const c = cstr(dv.getUint32(cards + i * 12, true)), w = dv.getInt32(cards + i * 12 + 4, true); if (!c || c.length > 40) bad.push(`card ${i}: no name`); else if (!known.has(c)) bad.push(`card "${c}" has no parameters`); if (w < 0 || w > 12) bad.push(`card "${c}": width ${w} (0..12)`); }
+    check('Editor', ncards >= 0 && ncards <= 64 && !bad.length, bad.length ? bad.slice(0, 3).join('; ') : `${ncards} cards in your order`);
+    if (ctl) { const xy = []; for (let i = 0; i < np; i++) { const c = u8[ctl + i]; if (c > 6) xy.push(`parameter ${i}: control ${c}`); if (c === 5 && (i + 1 >= np || u8[ctl + i + 1] !== 6 || groups[i].card !== groups[i + 1].card || groups[i].tab !== groups[i + 1].tab)) xy.push(`parameter ${i}: XY_X without XY_Y on the same card right after it`); if (c === 4) { const inf = x.vibe_wasm_param_info(i); if (!(dv.getFloat32(inf + 8, true) < 0 && dv.getFloat32(inf + 12, true) > 0)) xy.push(`parameter ${i}: BIPOLAR, but min/max not around 0`); } }
+      check('Editor', !xy.length, xy.length ? xy.slice(0, 3).join('; ') : 'controls valid (XY pairs, bipolar around 0)'); }
+    if (tabs) { const bt = []; for (let i = 0; i < Math.min(ntabs, 8); i++) { const t = cstr(dv.getUint32(tabs + i * 8, true)); if (t == null || !groups.some((g) => g.tab === t)) bt.push(`tab "${t}" does not exist`); } check('Editor', !bt.length && ntabs <= 8, bt.length ? bt.join('; ') : `${ntabs} tab colours`); }
+    if (help) { let long = 0; for (let i = 0; i < np; i++) { const t = cstr(dv.getUint32(help + i * 4, true)); if (t && t.length > 120) long++; } check('Editor', !long, long ? `${long} help texts over 120 characters` : 'help texts within length'); }
+    if (ncurves) { const bc = []; let slow = 0; for (let i = 0; i < Math.min(ncurves, 16); i++) { const c = cstr(x.vibe_wasm_editor_curve_card(i)); if (!known.has(c)) bc.push(`curve for "${c}": no such card`); const t0 = performance.now(), n = x.vibe_wasm_editor_curve(i, 0); if (performance.now() - t0 > 1) slow++; if (n < 2 || n > 64) bc.push(`curve "${c}": ${n} points (2..64)`); }
+      check('Editor', !bc.length && !slow && ncurves <= 16, bc.length ? bc.join('; ') : slow ? `${slow} curves take over 1 ms` : `${ncurves} curves, 2..64 points, under 1 ms`); }
+  }
 }
 if (hunted) check('Robustness', false, hunted);
 report();

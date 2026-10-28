@@ -17,7 +17,7 @@ WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your
 | | |
 |---|---|
 | **Zig 0.13.0** | its clang compiles C to WebAssembly – nothing else to install. Download: <https://ziglang.org/download/#release-0.13.0>, unpack, put `zig` on your PATH (or set `ZIG=/path/to/zig`). |
-| **VIBE FM VST 0.3** | the host you test in, free: <https://thefirmwarehub.com/convert> (macOS, Windows, Linux). |
+| **VIBE FM VST 0.4** | the host you test in, free: <https://thefirmwarehub.com/convert> (macOS, Windows, Linux). 0.4 plays MIDI out, the Cue output and your Editor layout; an SDK-9 firmware also runs in 0.3, without them. |
 | **The native firmwares** *(to look at)* | what this SDK makes: OberVave 3 (VOX coming soon) – <https://thefirmwarehub.com/native/>. OberVave 3 comes with VIBE FM VST, the Editor included. |
 | a shell | macOS / Linux: the terminal. Windows: Git Bash or WSL (`tools/build.sh` is a plain `sh` script). |
 | Node.js 18+ *(optional)* | for `tools/vibe-check.mjs` and `tools/wasmtest.mjs` (testing without a DAW). |
@@ -46,7 +46,9 @@ sh tools/build.sh my-synth
 
 `examples/hello` (~60 lines) is the smallest useful firmware: a sine on the keys, pads that light up, an encoder that
 bends. `examples/example-synth` (~150 lines) is a real instrument: 8 voices, saw through a resonant filter, envelope,
-DAW parameters and the song position. Start from whichever is closer to what you want.
+DAW parameters and the song position. `examples/example-seq` (~150 lines) is a 16-step sequencer that plays **out**
+over MIDI, sample-exact, with its own clock or following the DAW, and lays out its own Editor card. Start from whichever
+is closer to what you want.
 
 **`firmware.json`** is your firmware's card – what the plugin shows in its library and the hub will show later:
 
@@ -110,6 +112,25 @@ vibe_param_groups(GROUPS);       // "A · FILTER" makes a tab "A" with a card "F
 Give your parameters groups and the Editor is yours (up to 256 parameters; OberVave 3 has 219). Without groups, a
 firmware with only a handful of parameters gets the device view only.
 
+**MIDI out** (SDK 9). `vibe_midi_send(status, d1, d2)` – or `vibe_midi_send_at(…, frame)` from inside
+`vibe_on_audio` for sample-exact timing – goes to the plugin's MIDI output (route it to another track or instrument in
+your DAW), to Web MIDI in the browser, and to USB-MIDI and MIDI OUT (DIN) on the hardware. `vibe_clock_out(1)` +
+`vibe_tempo_set(bpm)` and the SDK sends 24-PPQ clock itself; while the DAW plays, it stays silent (one master).
+Nothing is passed through by itself: forward incoming MIDI yourself if you want thru. See `example-seq`.
+
+**Outputs** (SDK 9). `out_l` / `out_r` are yours – `vibe_outputs(VIBE_OUT_DUAL_MONO)` says they are two mono outs
+(drums left, bass right). `vibe_outputs(VIBE_OUT_CUE)` gives you a **headphone signal of your own**: write into
+`vibe_cue(0)` / `vibe_cue(1)` inside `vibe_on_audio` (a DJ's pre-listening, a click only for the player). The plugin
+has a second output "Cue" for it, the hardware a headphone jack fed separately. `vibe_cue_host()` says whether this host
+plays it – if not, fall back (e.g. master on L, cue on R).
+
+**Your Editor** (SDK 9). Without it the Editor builds one card per group in its own order. With a few lines in
+`vibe_on_init` it is yours: `vibe_editor_cards()` (order, width in a 12-column grid, a note), `vibe_editor_control()`
+(slider, toggle, menu, bipolar knob, an XY pad from two parameters), `vibe_editor_accent()` / `vibe_editor_tab_color()`,
+`vibe_editor_curve()` (a small graph per card from points you fill – an envelope, a filter, your pattern) and
+`vibe_param_help()` (a tooltip). It is declarative on purpose: no pixels, no mouse – the same file has to look right
+on the hardware, where the Editor does not exist.
+
 ## The rules (they keep the audio clean)
 
 - **No heap, no libc.** The target is freestanding WebAssembly: use static memory and the SDK's helpers.
@@ -141,17 +162,38 @@ a scripted performance and writes the audio to WAV and the screen to PNG (usage 
 - "VIBE FM" is a registered trademark. You may always say *"built with the VIBE FM SDK"*. "VIBE FM compatible" and the
   logo come later, for firmwares that pass `vibe-check`.
 
+## Built for the hardware
+
+Everything here exists for one reason: **your firmware is meant to run natively on the VIBE FM hardware** – the same
+`.wasm`, unchanged. The VIBE is a desktop instrument in development, and the SDK's limits are its limits on purpose:
+
+| | |
+|---|---|
+| **Brain** | a quad-core ARM Cortex-A53 (1.5 GHz, 1 GB RAM) running Linux. Your `.wasm` is compiled to native ARM code ahead of time (WAMR AOT): measured at 1.1–1.2× the cost of a native build, bit-exact with the plugin. |
+| **Controls** | 25 velocity keys, 16 RGB pads, encoders 1–4, A, B and a DATA wheel, F1–F6 under the display, six keys right of ENTER, a play section, SHIFT, OCT −/+ – exactly the enums in `vibe.h`. |
+| **Display** | 3.5" colour, 480 × 320 – your `vibe_on_draw` picture, 1:1. |
+| **I/O** | OUT L/R, a headphone out with its own signal, IN 1 / IN 2 (line, mic, Hi-Z), PEDAL, CV OUT, GATE OUT, CV IN, CLK IN, MIDI IN/OUT (5-pin DIN), USB-C (MIDI and audio to a computer), a USB host port (controllers, sticks), microSD, Wi-Fi and Bluetooth MIDI. |
+
+That is why there is no heap, no libc, no threads of your own and no free-form GUI: a firmware that keeps these rules
+runs in the DAW today and on the box tomorrow – and the browser in between. And you get very far within them:
+**OberVave 3** – four polyphonic tracks, filters, envelopes, LFOs, an arpeggiator, a sequencer, chorus, delay, reverb,
+a mixer with drive – uses about **6–7 % of one core** on the prototype's ARM board (174 µs per 128-frame block). Measure
+yours with `vibe-check`; a device budget per firmware follows with the hardware.
+
+The hardware is in development; details may still change – the contract in `vibe.h` does not break (new things are
+always added, never taken away).
+
 ## What's next – and what is not there yet
 
 - **The VIBE FM hardware:** your `.wasm` runs there unchanged – 25 keys, 16 pads, encoders, a 3.5" colour display, audio
   and CV in/out.
 - **A place on thefirmwarehub.com** for what you build.
 - **The VIBE FM Protocol specification** in English (the rules behind `vibe-check`, the two-flows mode).
+- A **device CPU budget** in `vibe-check`, measured on the hardware.
 
-Not in SDK 8 yet – tell us if you need one of these first:
+Not in SDK 9 yet – tell us if you need one of these first:
 
-- **MIDI out** (a sequencer driving other gear or a DAW track). MIDI in is complete.
-- **More than one stereo output** (tracks on separate DAW channels).
+- **More than one stereo output to the DAW** (each track on its own channel; today: stereo out, dual mono and the Cue).
 - **Reporting your own latency** to the DAW (a look-ahead limiter, for instance).
 - **Audio input** works (`vibe_request(VIBE_REQ_AUDIO_INPUT)`, then `in` / `vibe_input`): in the plugin it is the
   instrument's sidechain input – how you route a track into an instrument differs per DAW. An effect variant that sits

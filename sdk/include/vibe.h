@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 8         /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 9         /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -29,7 +29,9 @@
                                       atomics), so the VIBE and the plugin can run the audio in its own flow.
                                       7 (22.10.2026): VIBE_EV_TRANSPORT – a DAW's play / stop and tempo.
                                       8 (26.10.2026): notes from every source (VIBE_EV_NOTE), parameters (vibe_params).
-                                      Firmwares for 1-6 still run. */
+                                      9 (28.10.2026): MIDI out and clock out (vibe_midi_send, vibe_clock_out), the Editor
+                                      described by the firmware (vibe_editor_*). Optional exports again: nothing new
+                                      from a host, firmwares for 1-8 still run, SDK-9 firmwares run on SDK-8 hosts. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -140,6 +142,27 @@ void  vibe_param_groups(const char *const *groups);                   /* optiona
 void  vibe_param_set(int index, float value);                          /* the firmware changed it */
 float vibe_param_get(int index);                                       /* its current value */
 
+/* ---- MIDI out (SDK 9) -------------------------------------------------------------------------------------------
+   To the device's USB-MIDI and its MIDI OUT (DIN), the plugin's note/MIDI output (a DAW track), the browser's Web MIDI.
+   1-3 bytes a message, no running status. Safe from vibe_on_audio – it is the main case: a message is stamped with a
+   frame of the block being computed (vibe_midi_send: its first frame; _at: the frame you are at – sample-exact).
+   From vibe_on_event / vibe_on_draw: the next block's first frame. Returns 0 = queued, -1 = full (256 messages a block
+   is the limit: the firmware sends too much, the message is dropped and counted) or bad bytes (status < 0x80, data >= 0x80).
+   No thru in the host: what comes in goes out only if the firmware sends it on (VIBE_EV_MIDI → vibe_midi_send).
+   With VIBE_PARALLEL_AUDIO: send from one flow only (the queue has one writer). */
+int  vibe_midi_send(uint8_t status, uint8_t d1, uint8_t d2);
+int  vibe_midi_send_at(uint8_t status, uint8_t d1, uint8_t d2, int frame);   /* frame 0..frames-1 of this block */
+int  vibe_midi_send_sysex(const uint8_t *bytes, int n);                     /* F0 … F7, up to 256 bytes; not from vibe_on_audio */
+
+/* the firmware as the clock: 24 PPQ MIDI clock (F8) at its own tempo, sample-exact, made by the SDK inside each audio
+   block – the firmware only switches it on and keeps vibe_tempo_set current. START (FA) / STOP (FC) with
+   vibe_transport_out; START also lines the clock up (the first F8 on that frame). While a host leads – a DAW that plays,
+   a MIDI clock coming in (VIBE_EV_TRANSPORT tempo > 0) – the firmware's clock stays silent: one master. */
+void vibe_clock_out(int on);
+void vibe_tempo_set(float bpm);          /* the firmware's own tempo, 20..400 (default 120) */
+float vibe_tempo_get(void);
+void vibe_transport_out(int playing);    /* 1 = START, 0 = STOP – out as MIDI; the clock (if on) starts from here */
+
 /* ---- the host's position (SDK 8): where in the song – the DAW in the plugin; elsewhere what a MIDI clock tells ------
    The values of the current audio block (inside vibe_on_audio: this block's first frame; in vibe_on_event / vibe_on_draw:
    the last block's – fine for the display). A host that gives none (an older one, the device without a clock): has = 0,
@@ -155,6 +178,56 @@ typedef struct {
   double  loop_start, loop_end;   /* in quarter notes */
 } vibe_transport_info;
 const vibe_transport_info *vibe_transport(void);
+
+/* ---- outputs (SDK 9): two mono outs, and the headphones' own signal ------------------------------------------------
+   OUT L / OUT R are two buffers – a firmware may always put different things on them. vibe_outputs() says so to the host:
+   VIBE_OUT_DUAL_MONO – OUT L and OUT R are two separate mono outputs (drums on L, bass on R; a click on R): the host
+     names them (vibe_output_names) and gives the headphones both, in the middle, instead of L on the left ear only.
+   VIBE_OUT_CUE – the firmware fills a signal of its own for the HEADPHONES (pre-listening: a DJ's next track, a click
+     only for the player): inside vibe_on_audio, vibe_cue(0) / vibe_cue(1) are this block's left / right headphone
+     buffers (zeroed before each block, `frames` long). The device: the PHONES jack (its own pair from the codec); the
+     plugin: its second output "Cue"; the browser: a second audio device when one is chosen.
+   vibe_cue_host() says whether this host plays the cue on its own outputs: 0 = it does not (the prototype's interface,
+   the browser without a second device) – then the headphones hear OUT L/R, and a firmware that needs cueing may fall
+   back on its own (a DJ's split cue: master mono on OUT L, cue mono on OUT R). Without vibe_outputs: as before –
+   the headphones hear OUT L/R. */
+#define VIBE_OUT_DUAL_MONO 1
+#define VIBE_OUT_CUE       2
+void  vibe_outputs(int flags);
+void  vibe_output_names(const char *left, const char *right);   /* with DUAL_MONO: "DRUMS", "BASS" (up to 15 characters) */
+float *vibe_cue(int channel);                                    /* inside vibe_on_audio, with VIBE_OUT_CUE: 0 left, 1 right */
+int   vibe_cue_host(void);                                       /* 1 = the host plays the cue on its own outputs */
+
+/* ---- the Editor (SDK 9): how the plugin's and the browser's full-screen view lays out your parameters -------------
+   All optional and declarative – strings and numbers given once in vibe_on_init; the host draws them in its style, the
+   device ignores them. Without any of it: one card per group in the Editor's own order (SDK 8). A host that does not
+   know these (an SDK-8 host) shows the Editor as before. */
+
+/* your cards in YOUR order (else the Editor sorts them by name); a card not listed goes last. Names as in your groups:
+   the card part of "A · FILTER" is "FILTER" – the same card name on every tab is one entry. width: columns of a
+   12-column row (3 = quarter, 4 = third, 6 = half, 12 = full; 0 = the Editor decides). note: one line under the title, or 0. */
+typedef struct { const char *card; int width; const char *note; } vibe_card;
+void vibe_editor_cards(const vibe_card *cards, int count);           /* the list stays the firmware's (static); up to 64 */
+
+/* how a parameter is shown (a hint – the host may fall back to a knob). BIPOLAR: the arc from the middle (pan, detune,
+   a modulation depth – min < 0 < max). XY: two parameters as one pad, X then Y, both on the same card. */
+enum vibe_control { VIBE_CTL_KNOB, VIBE_CTL_SLIDER, VIBE_CTL_TOGGLE, VIBE_CTL_MENU, VIBE_CTL_BIPOLAR, VIBE_CTL_XY_X, VIBE_CTL_XY_Y };
+void vibe_editor_control(int param, int control);
+
+/* colours, 0xRRGGBB (the host fits them to light and dark): the instrument's accent (filled arcs, buttons) and one per
+   tab (the tab part of "A · FILTER" is "A"; up to 8 tabs) */
+void vibe_editor_accent(uint32_t rgb);
+void vibe_editor_tab_color(const char *tab, uint32_t rgb);
+
+/* a small graph on a card, drawn by the host from values the firmware fills: an envelope's shape, a filter's curve, a
+   wavetable's frame – 2..64 points, each 0..1, left to right. Asked for again when a parameter of that card changed;
+   called from the host's drawing thread (like vibe_on_draw), never from vibe_on_audio; keep it under a millisecond.
+   Up to 16 cards; the same card name on every tab: `tab` says which ("" when the card has no tab). */
+typedef int (*vibe_curve_fn)(const char *tab, const char *card, float *points, int max);   /* returns the points' count */
+void vibe_editor_curve(const char *card, vibe_curve_fn fn);
+
+/* a short help for a parameter (a tooltip in the plugin; the device shows nothing) – up to 120 characters */
+void vibe_param_help(int param, const char *text);
 
 /* audio inputs IN 1 / IN 2 (rear, balanced 6.3 mm TRS jacks). Switched on with vibe_request(VIBE_REQ_AUDIO_INPUT). */
 #define VIBE_INPUTS 2

@@ -8,6 +8,8 @@
 //         a step's "heard": ms (Protokoll 5) – the event was heard that long before it arrives (latency, a slow thread)
 //         optional "daw": {"bpm":120, "at":1.0, "start":6, "loop":[4,12], "sig":[4,4]} – a DAW (SDK 8, vibe_transport): it
 //         plays from "at" seconds at beat "start" (quarter notes), looping if "loop"; sends TRANSPORT tempo + PLAY too
+// "cue": true – this host plays the headphones' own signal (SDK 9, Protokoll 8.1): the firmware's cue goes to cue.wav
+// output: audio.wav, the shots as PNG, cue.wav (with "cue"), and midi.json (SDK 9: what the firmware sent – [{"t": seconds, "bytes": [..]}]) when it sent any
 import fs from 'fs';
 import zlib from 'zlib';
 const [, , wasmFile, scriptFile, outDir = '.', rateArg] = process.argv;
@@ -35,8 +37,24 @@ const e = inst.exports;
 e.vibe_wasm_init(sr);
 const total = Math.ceil(script.seconds * sr / block);
 const L = new Float32Array(total * block), R = new Float32Array(total * block);
+const outT = e.vibe_wasm_outputs ? e.vibe_wasm_outputs() : 0, CL = new Float32Array(total * block), CR = new Float32Array(total * block); let cueBlocks = 0;
+if (outT) new DataView(e.memory.buffer).setInt32(outT + 4, script.cue ? 1 : 0, true);   // (host_cue)
 const steps = (script.steps || []).slice().sort((a, b) => a.t - b.t);
 let drawMs = 0, draws = 0, audioMs = 0;
+const midiOut = [];   // SDK 9 (Protokoll 7.4): the firmware's MIDI out queue, drained after every block
+function midiDrain(b) {
+  if (!e.vibe_wasm_midi_out) return;
+  const base = e.vibe_wasm_midi_out(), dv = new DataView(e.memory.buffer), w = dv.getUint32(base, true);
+  let r = dv.getUint32(base + 4, true);
+  for (; r !== w; r = (r + 1) >>> 0) {
+    const q = base + 16 + (r % 256) * 6, frame = dv.getUint16(q, true), st = dv.getUint8(q + 2), len = dv.getUint8(q + 5);
+    let bytes;
+    if (!len && st === 0xF0) { const n = dv.getUint32(base + 12, true); bytes = [...new Uint8Array(e.memory.buffer, base + 1552, n)]; dv.setUint32(base + 12, 0, true); }
+    else bytes = [st, dv.getUint8(q + 3), dv.getUint8(q + 4)].slice(0, len);
+    midiOut.push({ t: +((b * block + frame) / sr).toFixed(5), bytes });
+  }
+  dv.setUint32(base + 4, w, true);
+}
 const shots = [];
 const here = (f) => f && (f.startsWith('/') ? f : scriptFile.replace(/[^/]*$/, '') + f);
 const in1 = readWav(here(script.input)), in2 = readWav(here(script.input2));
@@ -70,6 +88,8 @@ for (let b = 0; b < total; b++) {
   }
   dawWrite(b);
   const t0 = performance.now(); e.vibe_wasm_audio(block, (in1 ? 1 : 0) | (in2 ? 2 : 0)); audioMs += performance.now() - t0;
+  midiDrain(b);
+  if (outT) { const dv = new DataView(e.memory.buffer); if ((dv.getInt32(outT, true) & 2) && dv.getInt32(outT + 8, true)) { cueBlocks++; const c = new Float32Array(e.memory.buffer, outT + 20, 512); CL.set(c.subarray(0, block), b * block); CR.set(c.subarray(256, 256 + block), b * block); } }
   const io = new Float32Array(e.memory.buffer, e.vibe_wasm_io(), 256 * 3);
   L.set(io.subarray(256, 256 + block), b * block); R.set(io.subarray(512, 512 + block), b * block);
   if (b % 12 === 0 || shots.length) { const t1 = performance.now(); const fb = e.vibe_wasm_draw(); drawMs += performance.now() - t1; draws++;
@@ -78,8 +98,10 @@ for (let b = 0; b < total; b++) {
 let peak = 0, nan = 0, sum = 0;
 for (let i = 0; i < L.length; i++) { if (!Number.isFinite(L[i]) || !Number.isFinite(R[i])) nan++; peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i])); sum += L[i] * L[i]; }
 wav(`${outDir}/audio.wav`);
+if (cueBlocks) { const sl = L.slice(), sr2 = R.slice(); L.set(CL); R.set(CR); wav(`${outDir}/cue.wav`); L.set(sl); R.set(sr2); }
+if (midiOut.length) fs.writeFileSync(`${outDir}/midi.json`, JSON.stringify(midiOut));
 console.log(JSON.stringify({ peak: +peak.toFixed(3), rms: +Math.sqrt(sum / L.length).toFixed(4), nan,
-  cpu_audio_percent: +(audioMs / (script.seconds * 1000) * 100).toFixed(1), draw_ms: +(drawMs / draws).toFixed(2), logs, requests }));
+  cpu_audio_percent: +(audioMs / (script.seconds * 1000) * 100).toFixed(1), draw_ms: +(drawMs / draws).toFixed(2), midi_out: midiOut.length, cue_blocks: cueBlocks, logs, requests }));
 
 function png(px, file) {
   const raw = Buffer.alloc(320 * 1441);
