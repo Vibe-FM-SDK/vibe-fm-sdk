@@ -7,5 +7,5 @@ Licensed under the Apache License, Version 2.0 (see LICENSE).
 "VIBE FM" is a trademark of Sven Trogus. The Apache License does not grant permission to use it (section 6). A firmware, device or program may say that it is "built with the VIBE FM SDK"; using "VIBE FM compatible"
 or the VIBE FM logo needs permission.
 
-The display fonts in src/vibe_font.c are glyph bitmaps rendered from JetBrains Mono and Archivo,
+The display fonts in src/vibe_font.c are glyph bitmaps rendered from Roboto Condensed and Archivo,
 licensed under the SIL Open Font License 1.1 (see LICENSE-FONTS).
