@@ -38,7 +38,10 @@ python3 tools/emulator.py          # -> http://127.0.0.1:8766 (Chrome or Edge)
    (Web MIDI).
 
 **Cheat sheet** (top bar) shows how to play the running firmware. **Setup** and **Learn** map any MIDI controller (see 8).
-**Rear panel** opens the jacks: the audio input, the pedal and CV.
+**Rear panel** opens the jacks: the audio input, the pedal and CV. **Media** picks a folder of samples and songs that a
+firmware may read (SDK 13) – the first one you allow to be written to also gets the firmware's own files in
+`VIBE FM/<firmware>/`. In Firefox or Safari drop a folder onto the device instead (read only). Shift + click forgets them.
+On the VIBE the same comes from its card and from any USB stick you plug in; in the plugin from its media folder.
 
 | Key | VIBE | Key | VIBE |
 |---|---|---|---|

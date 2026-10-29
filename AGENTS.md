@@ -45,7 +45,7 @@ The host calls all four from **one thread, one after the other** – no locks, n
    `abs`. Anything else that needs an import makes the `.wasm` invalid ("forbidden imports" in `vibe-check`).
 2. **The sample rate and the block size are the host's.** Use the `sample_rate` given to `vibe_on_init` (44100, 48000,
    96000 …). `frames` changes from call to call (1 … 256, `VIBE_MAX_BLOCK`). Never assume 48000 or 128.
-3. **`vibe_on_audio` is real time.** No `vibe_store_*`, no `vibe_log`, no long loops, nothing that allocates or waits.
+3. **`vibe_on_audio` is real time.** No `vibe_store_*`, no `vibe_media_*`, no `vibe_log`, no long loops, nothing that allocates or waits.
    Do heavy work (wavetables, sample loading, tables) in `vibe_on_init` or spread over `vibe_on_draw`.
 4. **Write every frame of both outputs** in every `vibe_on_audio` call. Keep the level within -1 … +1. No NaN, no
    infinity (denormals: add a tiny DC or flush small values in feedback paths).
@@ -151,13 +151,14 @@ with `vibe_param_set` (compare once per block). Never write controller-specific 
 - A full firmware to read: `firmwares/obervave-src/` (OberVave 3.1, GPL-3.0) – pages, sequencer, mixer, Editor, MIDI out,
   FOCUS.
 - The examples are the best start: `examples/hello` (60 lines), `examples/example-synth` (a full synth with parameters and
-  the song position), `examples/example-seq` (MIDI out, clock, its own Editor card and curve).
+  the song position), `examples/example-seq` (MIDI out, clock, its own Editor card and curve), `examples/example-media`
+  (SDK 13: sources, folders, reading ahead, writing a file).
 
 ## Build, run, check – do this before saying it is done
 
 ```sh
 sh tools/build.sh my-synth                       # -> build/my-synth.wasm + build/my-synth.zip (needs Zig 0.13.0)
-node tools/vibe-check.mjs build/my-synth.wasm     # must end with PASSED: format, crashes, NaN, real time, storage, SDK 9
+node tools/vibe-check.mjs build/my-synth.wasm     # must end with PASSED: format, crashes, NaN, real time, storage, SDK 9, media (a stick is pulled halfway)
 python3 tools/emulator.py                        # the device in the browser at http://127.0.0.1:8766 – play it
 node tools/wasmtest.mjs build/my-synth.wasm script.json out/   # scripted: audio.wav, screenshots, midi.json
 ```

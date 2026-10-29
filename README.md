@@ -135,8 +135,11 @@ on the hardware, where the Editor does not exist.
 ## The rules (they keep the audio clean)
 
 - **No heap, no libc.** The target is freestanding WebAssembly: use static memory and the SDK's helpers.
-- **The audio callback is sacred:** no storing (`vibe_store_*`), no logging, no long loops in `vibe_on_audio`. Do heavy
-  setup (tables, samples) in `vibe_on_init`.
+- **The audio callback is sacred:** no storing (`vibe_store_*`), no media (`vibe_media_*`), no logging, no long loops in
+  `vibe_on_audio`. Do heavy setup (tables) in `vibe_on_init`.
+- **Samples and songs are the host's (SDK 13):** read them with `vibe_media_*` from the sources the host offers (the
+  VIBE's card and USB sticks, the emulator's Media folder, the plugin's media folder) into a buffer of your own, ahead of
+  the audio – never bundle them into the firmware. -2 = not yet (wait for `VIBE_EV_MEDIA` READY), -1 = gone.
 - **Don't run code at load time** other than through `vibe_on_init`.
 - Leave `VIBE_PARALLEL_AUDIO` off for now (it has extra rules we have not published yet).
 
@@ -182,7 +185,8 @@ opens the **VIBE FM emulator** on your own computer (http://127.0.0.1:8766): the
 display, the rear panel – playing every firmware you built (`build/*.wasm`, choose it in the top bar), or any `.wasm` you
 drop onto it. **OberVave 3.1** and **VIBE DJ** (with its two DECKS and three demo tracks) are always in the list –
 to try the device, and OberVave's full source is in `firmwares/obervave-src/` to read (GPL-3.0). How to play all of it:
-**`MANUAL.md`**. Your MIDI keyboard works (Web MIDI), the audio input too. Nothing leaves your computer. (The emulator in
+**`MANUAL.md`**. Your MIDI keyboard works (Web MIDI), the audio input too. **Media** (top bar) picks a folder of
+samples or songs a firmware may read (SDK 13; Chrome / Edge – elsewhere drop a folder onto the device). Nothing leaves your computer. (The emulator in
 `emulator/` is free to use for developing VIBE FM firmwares, not to pass on – see `emulator/LICENSE`.)
 
 ## Working with an AI assistant
@@ -198,8 +202,10 @@ node tools/vibe-check.mjs build/my-synth.wasm
 ```
 
 The same check every VIBE FM firmware has to pass: format, robustness under random input (no crash, no NaN), real-time
-behaviour (no storing or logging in the audio path, no blocks over budget at start), storage. `tools/wasmtest.mjs` runs
-a scripted performance and writes the audio to WAV and the screen to PNG (usage in its header).
+behaviour (no storing or logging in the audio path, no blocks over budget at start), storage, and media: it offers a
+card and a USB stick and pulls the stick halfway through (your firmware must get -1, never crash). `tools/wasmtest.mjs` runs
+a scripted performance and writes the audio to WAV and the screen to PNG (usage in its header); `"media"` in the script
+gives it folders as sources, `"media_remove"` pulls one.
 
 ## Licences – what is yours
 
