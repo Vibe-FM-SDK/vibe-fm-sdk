@@ -1,17 +1,27 @@
-<!-- PLAYER cheat sheet: an HTML fragment the emulator shows right of the device (tools/build.sh copies it to
+<!-- VIBE DJ cheat sheet (was PLAYER until 1.1): an HTML fragment the emulator shows right of the device (tools/build.sh copies it to
      runtime/web/firmware/player.cheat.html). Styles: .cheat in runtime/web/css/vibe.css. The full page:
-     docs/VIBE-PLAYER-DJ-Cheat-Sheet.pdf -->
-<h2>PLAYER <small>1.1 · music + DJ</small></h2>
+     docs/VIBE-DJ-Cheat-Sheet.pdf -->
+<h2>VIBE DJ <small>1.2 · music + decks</small></h2>
 <p class="dim">MP3 / WAV · drop files or folders onto the device · three demo tracks included</p>
+
+<h3>MPK mini</h3>
+<table>
+  <tr><td><span class="k">BANK − / +</span></td><td>LIST → NOW PLAYING → DECKS → SPOTIFY</td></tr>
+  <tr><td><span class="k">TAP TEMPO</span></td><td>one step back (↩)</td></tr>
+  <tr><td><span class="k">SHIFT + wheel</span></td><td>a frame over F1–F6 · press the wheel = that key (LOAD A / B, DECKS …)</td></tr>
+  <tr><td><span class="k">the overview</span></td><td>(the small bar under the time) FOCUS + press: DATA moves through the track, a beat a detent · ◆ then sets the cue exactly there</td></tr>
+  <tr><td><span class="k">K7 (A)</span></td><td>in a list: scroll (DECKS: the crossfader once the list is closed)</td></tr>
+  <tr><td><span class="k">K5 · wheel</span></td><td>DATA (on the decks: FOCUS – also LOW, MID, HIGH, FILTER)</td></tr>
+</table>
 
 <h3>The list</h3>
 <table>
-  <tr><td><span class="k">DATA</span></td><td>choose · <b>ENTER</b>: play / open the folder · ↩ back</td></tr>
+  <tr><td><span class="k">DATA</span></td><td>choose · <b>ENTER</b>: play / open the folder · ↩ back · <span class="dim">the number on the right: the BPM, once the track was on a deck</span></td></tr>
   <tr><td><span class="k">F1 F2</span></td><td><b>LOAD A</b> / <b>LOAD B</b>: the track onto a deck</td></tr>
-  <tr><td><span class="k">F6</span></td><td><b>DJ</b>: the two decks (also <b>K6</b>) · <span class="dim">SHIFT: REPEAT · SHIFT+F5: SHUFFLE</span></td></tr>
+  <tr><td><span class="k">F6</span></td><td><b>DECKS</b>: the two decks (also <b>K6</b>) · <span class="dim">SHIFT: REPEAT · SHIFT+F5: SHUFFLE</span></td></tr>
 </table>
 
-<h3>DJ · F keys</h3>
+<h3>DECKS · F keys</h3>
 <table>
   <tr><td><span class="k">F1 F6</span></td><td><b>PLAY A / B</b> · <span class="dim">SHIFT: to the start</span></td></tr>
   <tr><td><span class="k">F2 F5</span></td><td><b>PHONES A / B</b>: the deck in the headphones</td></tr>
@@ -19,15 +29,15 @@
   <tr><td><span class="k">K3</span></td><td><b>AUTO VOL</b>: every track equally loud</td></tr>
 </table>
 
-<h3>DJ · encoders</h3>
+<h3>DECKS · encoders</h3>
 <table>
-  <tr><td><span class="k">1 · 4</span></td><td>volume A · B · <span class="dim">SHIFT: FILTER (left low pass, right high pass)</span></td></tr>
-  <tr><td><span class="k">2 · 3</span></td><td>pitch A · B ±25 % · <span class="dim">SHIFT: HIGH</span></td></tr>
+  <tr><td><span class="k">1 · 3</span></td><td>volume A · B · <span class="dim">SHIFT: FILTER (left low pass, right high pass)</span></td></tr>
+  <tr><td><span class="k">2 · 4</span></td><td>nudge A · B (1 % of a beat a click; with SYNC: SYNC's beat) · <span class="dim">SHIFT: pitch ±25 %</span></td></tr>
   <tr><td><span class="k">A · B</span></td><td>crossfader · cue ⇄ master · <span class="dim">SHIFT: MID A / B</span></td></tr>
-  <tr><td><span class="k">DATA</span></td><td><b>FOCUS</b>: the orange frame over every control · <b>ENTER</b> uses it (a value: DATA changes, ENTER ends) · on a title: the list, ENTER loads into that deck</td></tr>
+  <tr><td><span class="k">DATA</span></td><td><b>FOCUS</b>: the orange frame over every control (LOW only here) · <b>ENTER</b> uses it (a value: DATA changes, ENTER ends) · on a title: the list, ENTER loads into that deck</td></tr>
 </table>
 
-<h3>DJ · pads</h3>
+<h3>DECKS · pads</h3>
 <div class="pads">
   <div style="--c:#3D8BFF">PLAY<small>A</small></div>
   <div style="--c:#3D8BFF">PHONES<small>A</small></div>
@@ -46,5 +56,6 @@
   <div style="--c:#22B35E">LOOP 4<small>B</small></div>
   <div style="--c:#22B35E">LOOP 8<small>B</small></div>
 </div>
-<p class="dim">CUE empty: set on the next beat · set: jump there · SHIFT: clear · LOOP: from the next beat, again: out at its end<br>
-Held: <b>OCT − / +</b> bend A · <b>◀ ▶</b> bend B (±4 %) · ↩ back to the list, the decks play on</p>
+<p class="dim">◆ in each deck's transport row = CUE 1 · cues and the analysis (BPM, waveform) are saved per track – loaded again, it is all there at once · CUE empty: set on the next beat · set: jump there · SHIFT: clear · LOOP: from the next beat, again: out at its end<br>
+Held: <b>OCT − / +</b> bend A · <b>◀ ▶</b> bend B (±4 %) · ↩ back to the list, the decks play on<br>
+A track loaded: its deck's pitch, FILTER, LOW, MID and HIGH back to 0 (the volume stays)</p>

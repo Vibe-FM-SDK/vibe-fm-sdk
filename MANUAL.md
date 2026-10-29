@@ -23,7 +23,7 @@ marked *(hardware)*.
 | **16 pads · 25 keys** | velocity-sensitive. The pads light up in RGB. |
 | **Rear** | IN 1 / IN 2 (mic, line, guitar), OUT L/R, PHONES with its own signal, PEDAL, CV/Gate in and out, CLK IN, MIDI IN/OUT (DIN), USB *(hardware)* |
 
-A **firmware** is a whole instrument, for example OberVave, the PLAYER, or what you build. The VIBE runs one at a time,
+A **firmware** is a whole instrument, for example OberVave, VIBE DJ, or what you build. The VIBE runs one at a time,
 and you switch between them in the firmware library.
 
 ## 2. The emulator
@@ -32,7 +32,7 @@ and you switch between them in the firmware library.
 python3 tools/emulator.py          # -> http://127.0.0.1:8766 (Chrome or Edge)
 ```
 
-1. Choose a firmware in the top bar. **OBERVAVE 3.1** and **PLAYER** are always there, together with everything you built.
+1. Choose a firmware in the top bar. **OBERVAVE 3.1** and **VIBE DJ** are always there, together with everything you built.
 2. Click **Power on**. The browser only allows sound after a click.
 3. Play with the mouse (drag or scroll the knobs), with your computer keyboard (table below), or with a MIDI controller
    (Web MIDI).
@@ -76,7 +76,7 @@ Firmwares use FOCUS in one of two ways:
 
 | | how FOCUS starts | used by |
 |---|---|---|
-| **always on** | DATA has no other job here, so turning it moves the frame straight away | the PLAYER's DJ |
+| **always on** | DATA has no other job here, so turning it moves the frame straight away | VIBE DJ's DECKS |
 | **on hold** | **hold ENTER (or the DATA wheel) for 0.6 s**. Hold it again, or press ↩, to end. Until then, DATA and ENTER do the firmware's own jobs (choose a sound, a pattern …), and a short ENTER is still the firmware's. | OberVave |
 
 The keys, pads and encoders keep doing what they always did. FOCUS is an extra way in, not a replacement.
@@ -127,19 +127,20 @@ full source is in `firmwares/obervave-src/` (GPL-3.0). `sh tools/build.sh firmwa
 Programs 65 – 70 are drum and keys sounds: KICK, SNARE, HIHAT, CLAP, E-PIANO, WURLI. Eight patterns. Edits made while
 playing are kept and saved at the next stop. The full cheat sheet is under **Cheat sheet** in the emulator.
 
-## 6. PLAYER and its DJ
+## 6. VIBE DJ
 
-An MP3 / WAV player with a two-deck DJ. In the emulator it comes with three demo tracks (118, 124 and 128 BPM, made
+An MP3 / WAV player with two DJ decks (called PLAYER until 1.1). In the emulator it comes with three demo tracks (118, 124 and 128 BPM, made
 with our own groovebox). You can also drop your own files or folders onto the device. Everything stays in your browser.
 
 **The list:**
 
 - **DATA** chooses, **ENTER** plays.
 - **F1 LOAD A** and **F2 LOAD B** put the selected track on a deck.
-- **F6 DJ** (or **K6**) opens the decks.
+- **F6 DECKS** (or **K6**) opens the decks.
+- The number on the right of a track is its BPM, once it has been on a deck.
 
-**The DJ:** the two waveforms run upward side by side in the middle, with the decks outside. Tempo and beats are measured
-when a track loads.
+**DECKS:** the two waveforms run upward side by side in the middle, with the decks outside. Tempo and beats are measured
+when a track loads, and kept: loaded again, the track has its BPM, beats and waveform at once.
 
 | | |
 |---|---|
@@ -191,8 +192,8 @@ every firmware that reports its mixer (SDK 11).
   on the device, then move yours). The mapping is kept in the browser.
 - On the hardware, the same setup will live under SETTINGS → CONTROLLER *(hardware)*.
 
-With FOCUS, a controller that has **one encoder with a push** already reaches every control in OberVave and the
-PLAYER. Map it to DATA and ENTER.
+With FOCUS, a controller that has **one encoder with a push** already reaches every control in OberVave and
+VIBE DJ. Map it to DATA and ENTER.
 
 ## 9. When something is wrong
 

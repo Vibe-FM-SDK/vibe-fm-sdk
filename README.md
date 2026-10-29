@@ -166,7 +166,7 @@ python3 tools/emulator.py
 
 opens the **VIBE FM emulator** on your own computer (http://127.0.0.1:8766): the whole device – keys, pads, knobs, the
 display, the rear panel – playing every firmware you built (`build/*.wasm`, choose it in the top bar), or any `.wasm` you
-drop onto it. **OberVave 3.1** and the **PLAYER** (with its two-deck DJ and three demo tracks) are always in the list –
+drop onto it. **OberVave 3.1** and **VIBE DJ** (with its two DECKS and three demo tracks) are always in the list –
 to try the device, and OberVave's full source is in `firmwares/obervave-src/` to read (GPL-3.0). How to play all of it:
 **`MANUAL.md`**. Your MIDI keyboard works (Web MIDI), the audio input too. Nothing leaves your computer. (The emulator in
 `emulator/` is free to use for developing VIBE FM firmwares, not to pass on – see `emulator/LICENSE`.)

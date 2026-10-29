@@ -14,7 +14,7 @@ ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 EMU, BUILD = os.path.join(ROOT, 'emulator'), os.path.join(ROOT, 'build')
 fw = os.path.join(EMU, 'firmware'); os.makedirs(fw, exist_ok=True)
 lib = []
-# firmwares/: OberVave 3.1 and the PLAYER (with its DJ and demo tracks) – to try the device, and to see a full firmware
+# firmwares/: OberVave 3.1 and VIBE DJ (with its DECKS and demo tracks) – to try the device, and to see a full firmware
 FWS = os.path.join(ROOT, 'firmwares')
 for i in ('obervave', 'player'):
     if not os.path.exists(os.path.join(FWS, i + '.wasm')): continue
