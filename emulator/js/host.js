@@ -69,7 +69,8 @@ async function boot(fw) {
   panel.setLatch(fw.latch !== false);
   const store = await storeLoad(storeSpace(fw));
   await seed(fw, store);
-  node = new AudioWorkletNode(ctx, 'vibe-host', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { module, store } });
+  mediaAsked = false;
+  node = new AudioWorkletNode(ctx, 'vibe-host', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { module, store, fwid: storeSpace(fw), media: mediaList() } });
   node.connect(gain);
   if (micNode) micNode.connect(node);
   node.port.onmessage = (m) => onMessage(m.data);
@@ -99,7 +100,7 @@ async function seed(fw, store) {
 }
 function onMessage(d) {
   if (d.t === 'ready') {
-    ctl.setMixer([]);
+    ctl.setMixer([]); ctl.fwAreas = d.areas || 0;
     running = true; ctl.sdk = d.sdk; status((current.name || 'Firmware') + ' running · VIBE SDK ' + d.sdk);
     node.port.postMessage({ t: 'cvin', volts: +rear.cvKnob.value });
   }
@@ -109,7 +110,112 @@ function onMessage(d) {
   else if (d.t === 'midi') ctl.midiOut(d.msgs, ctx);   // (SDK 9) the firmware's MIDI out – to the chosen Web MIDI port
   else if (d.t === 'store') { const sp = storeSpace(current); storeQ = storeQ.then(() => storePut(sp, d.name, d.data)); }
   else if (d.t === 'request') { if (d.what === 1) showMenu(); if (d.what === 2) enableInput(); if (d.what === 3) { const fw = current; storeQ.then(() => boot(fw)); } }   // 3: restart, once its writes / deletes are stored
+  else if (d.t === 'mreq') mediaRead(d);   // SDK 13: the worklet asks for a list, a size, a block
+  else if (d.t === 'mopen' || d.t === 'mwrite' || d.t === 'mclose') mediaWrite(d);
+  else if (d.t === 'masked') { mediaAsked = true; $('#tb-media').classList.add('on'); }
   else if (d.t === 'crash') { running = false; status('Firmware stopped: ' + d.error, true); showMenu('The firmware crashed – not the device. Choose a firmware:'); }
+}
+
+// ---------------------------------------------------------------- media (SDK 13, Protokoll 13a) ----------------------
+// Folders the firmware may read: picked with the Media button (showDirectoryPicker – the first one picked with write
+// permission also takes the firmware's own files, "VIBE FM/<id>/") or dropped onto the device while a firmware that uses
+// media runs (read-only; Firefox and Safari: this is the way). Kept in IndexedDB (a handle, not the files), asked for
+// permission again on the next visit. The worklet keeps the cache; here the reading and writing happen.
+const MBLK = 65536;
+let mediaSrc = [], mediaAsked = false;
+const mediaList = () => mediaSrc.filter((s) => s.ok).map((s) => ({ key: s.key, label: s.label, write: !!s.write }));
+const mediaPush = () => { if (node) node.port.postMessage({ t: 'msrc', list: mediaList() }); const b = $('#tb-media'); if (b) b.title = mediaTitle(); };
+const mediaTitle = () => 'Media: folders the firmware may read (samples, songs) – SDK 13. ' + (mediaSrc.length ? 'Now: ' + mediaSrc.map((s) => s.label + (s.write ? ' (writes here)' : '') + (s.ok ? '' : ' – click to allow again')).join(', ') + '. Shift+click: forget them all.' : 'Click to pick one, or drop a folder onto the device.');
+function mediaKey(name) {   // a stable key from the folder's name: dir-<name>, numbered if taken
+  const b = 'dir-' + (name.normalize('NFKD').replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 38) || 'folder');
+  let k = b; for (let i = 2; mediaSrc.some((s) => s.key === k); i++) k = b + '-' + i;
+  return k;
+}
+let mdbp = null;
+function mdb() { if (!mdbp) mdbp = new Promise((res, rej) => { const r = indexedDB.open('vibe-media', 1); r.onupgradeneeded = () => r.result.createObjectStore('dirs'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); return mdbp; }
+async function mediaSave() {
+  try { const d = await mdb(), tx = d.transaction('dirs', 'readwrite'), os = tx.objectStore('dirs'); os.clear(); for (const s of mediaSrc) if (s.h && s.h.kind === 'directory' && !s.dropped) os.put({ key: s.key, label: s.label, write: !!s.write, h: s.h }, s.key); await new Promise((res) => { tx.oncomplete = res; tx.onerror = res; }); } catch (e) { /* storage off */ }
+}
+async function mediaRestore() {
+  if (PLUGIN || REMOTE) return;
+  try {
+    const d = await mdb(), all = await new Promise((res, rej) => { const r = d.transaction('dirs').objectStore('dirs').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
+    for (const x of all) { const q = x.h.queryPermission ? await x.h.queryPermission({ mode: x.write ? 'readwrite' : 'read' }) : 'denied'; mediaSrc.push({ ...x, ok: q === 'granted' }); }
+    mediaPush(); if (mediaSrc.some((s) => s.ok)) $('#tb-media').classList.add('on');
+  } catch (e) { /* none */ }
+}
+async function mediaPick(ev) {
+  if (ev.shiftKey) { mediaSrc = []; await mediaSave(); mediaPush(); $('#tb-media').classList.remove('on'); status('Media folders forgotten'); return; }
+  const waiting = mediaSrc.filter((s) => !s.ok && s.h && s.h.requestPermission);
+  if (waiting.length) {   // (a new visit: the browser wants a click before it lets the page read them again)
+    for (const s of waiting) s.ok = (await s.h.requestPermission({ mode: s.write ? 'readwrite' : 'read' })) === 'granted';
+    mediaPush(); status('Media: ' + mediaSrc.filter((s) => s.ok).map((s) => s.label).join(', ')); return;
+  }
+  if (!window.showDirectoryPicker) { status('This browser cannot open folders – drop a folder onto the device instead (while a firmware that uses media runs)', true); return; }
+  let h; try { h = await window.showDirectoryPicker({ id: 'vibe-media', mode: 'readwrite' }); } catch (e) { return; }
+  const write = !mediaSrc.some((s) => s.write && s.ok) && (await h.queryPermission({ mode: 'readwrite' })) === 'granted';
+  mediaSrc.push({ key: mediaKey(h.name), label: h.name, write, h, ok: true });
+  await mediaSave(); mediaPush(); $('#tb-media').classList.add('on');
+  status(`Media: ${h.name}` + (write ? ' (the firmware writes its own files into "VIBE FM" there)' : ''));
+}
+function mediaDrop(entry, handle) {   // a folder dropped: read-only
+  const h = handle || entry; if (!h) return;
+  mediaSrc.push({ key: mediaKey(h.name), label: h.name, write: false, h, ok: true, dropped: true });
+  mediaPush(); $('#tb-media').classList.add('on'); status('Media: ' + h.name + ' (dropped – read only, gone after a reload)');
+}
+// a folder as a FileSystemDirectoryHandle (picked; dropped in Chrome) or a FileSystemDirectoryEntry (dropped elsewhere)
+const fsx = {
+  child: (d, name, dir) => d.getDirectoryHandle ? (dir ? d.getDirectoryHandle(name) : d.getFileHandle(name)) : new Promise((res, rej) => (dir ? d.getDirectory : d.getFile).call(d, name, {}, res, rej)),
+  async list(d) {
+    const out = [];
+    if (d.entries) { for await (const [name, h] of d.entries()) out.push({ name, dir: h.kind === 'directory', h }); return out; }
+    const r = d.createReader();
+    for (;;) { const b = await new Promise((res, rej) => r.readEntries(res, rej)); if (!b.length) break; for (const e of b) out.push({ name: e.name, dir: e.isDirectory, h: e }); }
+    return out;
+  },
+  file: (h) => h.getFile ? h.getFile() : new Promise((res, rej) => h.file(res, rej)),
+};
+async function mediaDir(s, parts, create) { let d = s.h; for (const p of parts) d = d.getDirectoryHandle ? await d.getDirectoryHandle(p, { create: !!create }) : await fsx.child(d, p, true); return d; }
+const mFiles = new Map();   // path -> File (a few seconds: one getFile for many blocks)
+async function mediaRead(d) {
+  const reply = (v, miss, size, tr) => { if (node) node.port.postMessage({ t: 'mres', kind: d.kind, path: d.path, blk: d.blk, v, miss, size }, tr || []); };
+  const [key, ...parts] = d.path.split('/'), s = mediaSrc.find((x) => x.key === key && x.ok);
+  if (!s) return reply(null, true);
+  try {
+    if (d.kind === 'l') {
+      const dir = await mediaDir(s, parts), items = (await fsx.list(dir)).filter((e) => !e.name.startsWith('.') && !e.name.includes('\\'));
+      await Promise.all(items.map(async (e) => { if (!e.dir) e.size = (await fsx.file(e.h)).size; }));
+      items.sort((a, b) => (b.dir - a.dir) || (a.name.toLowerCase() < b.name.toLowerCase() ? -1 : a.name.toLowerCase() > b.name.toLowerCase() ? 1 : 0));
+      return reply(items.map((e) => e.dir ? `d\t\t${e.name}\n` : `f\t${e.size}\t${e.name}\n`).join(''));
+    }
+    const dir = await mediaDir(s, parts.slice(0, -1)), leaf = parts[parts.length - 1];
+    if (d.kind === 's') {
+      try { const f = await fsx.file(await fsx.child(dir, leaf, false)); return reply([1, f.size, Math.floor(f.lastModified / 1000)]); }
+      catch (e) { await fsx.child(dir, leaf, true); return reply([2, 0, 0]); }
+    }
+    let f = mFiles.get(d.path);
+    if (!f || performance.now() - f.t > 5000) { f = { file: await fsx.file(await fsx.child(dir, leaf, false)), t: performance.now() }; mFiles.set(d.path, f); if (mFiles.size > 8) mFiles.delete(mFiles.keys().next().value); }
+    const buf = await f.file.slice(d.blk * MBLK, d.blk * MBLK + MBLK).arrayBuffer();
+    reply(buf, false, f.file.size, [buf]);
+  } catch (e) { mFiles.delete(d.path); reply(null, true); }
+}
+const mWriters = new Map();   // handle -> { q: a promise chain, ws, dir, name, key, failed }
+function mediaWrite(d) {
+  const ack = (m) => { if (node) node.port.postMessage(m); };
+  if (d.t === 'mopen') {
+    const s = mediaSrc.find((x) => x.key === d.key && x.ok), w = { key: d.key, name: d.name, failed: !s };
+    w.q = s ? (async () => { w.dir = await mediaDir(s, d.dir, true); w.ws = await (await w.dir.getFileHandle(d.name, { create: true })).createWritable(); })().catch(() => { w.failed = true; }) : Promise.resolve();
+    mWriters.set(d.h, w); return;
+  }
+  const w = mWriters.get(d.h); if (!w) return;
+  if (d.t === 'mwrite') { const n = d.data.byteLength; w.q = w.q.then(async () => { if (w.failed) throw 0; await w.ws.write(d.data); }).then(() => ack({ t: 'mack', h: d.h, n, ok: true }), () => { w.failed = true; ack({ t: 'mack', h: d.h, n, ok: false }); }); return; }
+  mWriters.delete(d.h);   // mclose
+  w.q.then(async () => {
+    if (!d.keep) { try { if (w.ws) await w.ws.abort(); if (w.dir) await w.dir.removeEntry(w.name); } catch (e) { /* gone anyway */ } return; }
+    if (w.failed) throw 0;
+    await w.ws.close();
+    ack({ t: 'mdone', h: d.h, key: w.key, ok: true });
+  }).catch(() => { try { if (w.ws) w.ws.abort(); } catch (e) { /* */ } ack({ t: 'mdone', h: d.h, key: w.key, ok: false }); status('Media: ' + w.name + ' could not be written', true); });
 }
 
 // ---------------------------------------------------------------- storage (SDK 3) ---------------------------------
@@ -163,7 +269,12 @@ wrap.addEventListener('dragleave', () => wrap.classList.remove('drop'));
 wrap.addEventListener('drop', async (e) => {
   e.preventDefault(); wrap.classList.remove('drop');
   if (PLUGIN) return;                                 // (the plugin: the window's own handler installs it, see pluginMode)
+  const handles = mediaAsked ? [...e.dataTransfer.items].map((it) => it.getAsFileSystemHandle && it.getAsFileSystemHandle()) : [];   // (SDK 13: before the first await, too)
   const entries = [...e.dataTransfer.items].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);   // (now: they expire after the first await)
+  if (mediaAsked && entries.length && entries.every((x) => x.isDirectory)) {   // (a firmware that uses media: the folders become media, read-only)
+    const hs = await Promise.all(handles.map((p) => p && p.catch(() => null)));
+    entries.forEach((x, i) => mediaDrop(x, hs[i] && hs[i].kind === 'directory' ? hs[i] : null)); return;
+  }
   const plain = [...e.dataTransfer.files], fw = plain.find((f) => /\.wasm$/i.test(f.name));
   if (fw) { await powerOn(); boot({ name: fw.name.replace(/\.wasm$/i, ''), bytes: await fw.arrayBuffer() }); return; }
   let items = entries.length ? await walkEntries(entries) : plain.map((f) => ({ f, dir: [] }));
@@ -288,6 +399,8 @@ async function enableInput() {
   } catch (e) { status('No access to the microphone', true); }
 }
 $('#tb-in').addEventListener('click', async () => { await powerOn(); enableInput(); });
+$('#tb-media').addEventListener('click', (e) => mediaPick(e));
+mediaRestore();
 
 // ---------------------------------------------------------------- USB-MIDI ------------------------------------------
 $('#tb-midi').addEventListener('click', async () => { await powerOn(); if (await ctl.connect()) $('#tb-midi').classList.add('on'); });
@@ -422,12 +535,13 @@ $('#tb-help').addEventListener('click', () => $('#help').showModal());
 $('#help-close').addEventListener('click', () => $('#help').close());
 $('#tb-full').addEventListener('click', () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); });
 if (PLUGIN) pluginMode(); else if (REMOTE) remote(); else loadLibrary();
-window.__vibe = { panel, rear, ctl, get node() { return node; }, get ctx() { return ctx; }, boot, powerOn };
+window.__vibe = { panel, rear, ctl, get node() { return node; }, get ctx() { return ctx; }, boot, powerOn,
+  mediaAdd: (h, write) => { mediaSrc.push({ key: mediaKey(h.name || 'opfs'), label: h.name || 'OPFS', write: !!write, h, ok: true, dropped: true }); mediaPush(); } };   // (tests: an OPFS folder as media)
 
 // ---------------------------------------------------------------- device mode (served by a VIBE) ------------------
 async function remote() {
   power.classList.add('gone'); document.body.classList.add('remote');
-  for (const id of ['#fw', '#tb-in', '#tb-rear', '#tb-cheat']) { const el = $(id); if (el) el.style.display = 'none'; }
+  for (const id of ['#fw', '#tb-in', '#tb-rear', '#tb-cheat', '#tb-media']) { const el = $(id); if (el) el.style.display = 'none'; }
   showRear(false); showCheat(false);
   try { const p = await navigator.permissions.query({ name: 'midi', sysex: true }); if (p.state === 'granted') ctl.connect(); } catch (e) { /* no permissions API */ }
   const apply = frameSink();
@@ -479,7 +593,7 @@ async function pluginMode() {
   panel.printLabels = true; panel.labelKey = null;    // (the firmware's captions printed on the coloured keys and F1–F6)
   { let b = null; try { b = localStorage.getItem(BOX_KEY); } catch (e) { /* storage off */ } if (b === null) setBox(true); }   // (the plugin starts in the box view)
   $('.brand').innerHTML = '<b>VIBE</b> <em>FM</em> <span>VST</span> <small class="claim">MAKE FIRMWARE <i>NOT WAR</i></small>';
-  for (const id of ['#tb-in', '#tb-rear', '#tb-midi', '#midiout']) { const el = $(id); if (el) el.style.display = 'none'; }   // (the DAW has the audio and MIDI – and the firmware's MIDI out goes to its note port)
+  for (const id of ['#tb-in', '#tb-rear', '#tb-midi', '#midiout', '#tb-media']) { const el = $(id); if (el) el.style.display = 'none'; }   // (the plugin: its media folder is in its settings)   // (the DAW has the audio and MIDI – and the firmware's MIDI out goes to its note port)
   showRear(false);
   const apply = frameSink();
   let got = 0;

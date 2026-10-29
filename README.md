@@ -153,6 +153,20 @@ Then any mixer controller and the DAW work its tracks, with no controller code i
 are described by small JSON **profiles** in `controllers/`, which the host applies. Make one in the emulator (Setup, then
 Profile ↓) and send it to us. Both are explained in **`CONTROLLERS.md`**.
 
+## New in SDK 12 and 13: a stream from the host, areas – and media
+
+**SDK 12:** `vibe_stream` (a stream the host plays into the firmware – Spotify Connect on the VIBE), `vibe_areas` (a
+controller's BANK − / + step through your own areas), SHIFT + DATA = the soft keys F1–F6 in every firmware.
+
+**SDK 13 – media:** samples and songs no longer live inside a firmware. The host keeps **sources** – on the VIBE its
+card and any USB stick (read only), in the emulator a folder you pick with the **Media** button (or drop onto the
+device), in the plugin a folder from its settings – and your firmware reads them in pieces with `vibe_media_*`. It
+writes only into `VIBE FM/<your id>/` (recordings, exports). Nothing waits: the host reads ahead in its own thread and
+answers "not yet" (-2) until the bytes are there, then sends `VIBE_EV_MEDIA` READY. A pulled stick gives -1, never a
+crash. Start from **`examples/example-media`**; the rules are in `AGENTS.md` ("SDK 13") and `sdk/include/vibe.h`.
+`tools/wasmtest.mjs` takes `"media": {...}` in a script, `vibe-check` pulls a stick halfway through.
+The emulator has it now; the VIBE FM VST gets it with its next version (0.4.2 answers -1: your firmware still loads).
+
 ## Updates
 
 This repository is where the SDK grows: `git pull` brings new versions, the **issues** are the place for questions,
@@ -224,7 +238,7 @@ always added, never taken away).
 - **The VIBE FM Protocol specification** in English (the rules behind `vibe-check`, the two-flows mode).
 - A **device CPU budget** in `vibe-check`, measured on the hardware.
 
-Not in SDK 11 yet – tell us if you need one of these first:
+Not in SDK 13 yet – tell us if you need one of these first:
 
 - **More than one stereo output to the DAW** (each track on its own channel; today: stereo out, dual mono and the Cue).
 - **Reporting your own latency** to the DAW (a look-ahead limiter, for instance).

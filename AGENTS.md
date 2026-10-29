@@ -128,6 +128,18 @@ Report the tracks as parameters with the fixed ids `mix_<n>_level` (0..1), `mix_
 with `vibe_param_set` (compare once per block). Never write controller-specific code: controllers are the host's
 (profiles, see `CONTROLLERS.md`). Example: `firmwares/obervave-src/o3_daw.h`.
 
+## SDK 13: media (samples and songs the host keeps)
+
+- Samples and songs are not stored in the firmware: the host offers **sources** (the VIBE's card and USB sticks, a folder
+  in the emulator's **Media** button, the plugin's media folder). `vibe_media_sources`, `vibe_media_list`,
+  `vibe_media_stat`, `vibe_media_read` (in pieces); write only with `vibe_media_create/append/close` – it lands in
+  `VIBE FM/<your id>/`, the host picks the source and makes the name unique.
+- **Never from `vibe_on_audio`.** Fill your own buffer from `vibe_on_event` / `vibe_on_draw`; the audio plays from it.
+- `VIBE_MEDIA_PENDING` (-2) = not yet: ask again when `VIBE_EV_MEDIA` / `VIBE_MEDIA_EV_READY` comes. Keep going after a
+  success until you get -2 or are done – a host that does not draw (the plugin, its window closed) only sends events.
+- -1 = gone (a stick pulled): show it, never crash. `VIBE_MEDIA_EV_SOURCES` says a source came or went.
+- Example: `examples/example-media`. `vibe-check` pulls a stick halfway through its run.
+
 ## Patterns that work
 
 - **Voices**: a fixed `static voice V[N]`; note on → a free voice, else the oldest; per sample `vd_saw(phase, dt)` (band-

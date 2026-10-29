@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 11        /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 13        /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -36,7 +36,15 @@
                                       with one knob and one button (DATA + ENTER), the standard for every firmware. Inside
                                       the firmware only: nothing new for a host.
                                       11 (28.10.2026): the mixer convention – mix_<n>_level / pan / mute / solo / arm and
-                                      mix_select as parameters (Protokoll 7.2a): any mixer controller works the tracks. */
+                                      mix_select as parameters (Protokoll 7.2a): any mixer controller works the tracks.
+                                      12 (28.10.2026): a stream from the host (vibe_stream: Spotify Connect on the VIBE),
+                                      vibe_areas (a controller's BANK − / +), SHIFT + DATA = the soft keys F1-F6 in every
+                                      firmware (the SDK takes SHIFT + DATA; a firmware no longer gets it: when the frame
+                                      appears it gets SHIFT let go with value -1 – not a tap, if SHIFT tapped means something).
+                                      13 (29.10.2026): media from outside (vibe_media_*): samples and songs on the VIBE's
+                                      card, a USB stick, a folder the browser or the plugin was given – read in pieces,
+                                      written only into "VIBE FM/<firmware>/". New ops of vibe_host_store, no new import:
+                                      an SDK-13 firmware still runs on every host (an older one answers -1). */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -79,6 +87,15 @@ typedef enum {
                            value = velocity 0..1, midi[0] = channel 0..15, midi[1] = source (enum vibe_note_source) */
   VIBE_EV_PARAM = 10,   /* SDK 8: a parameter set from outside (the DAW's automation, a mapped controller) –
                            id = index into the vibe_params() list, value = its new value (min..max) */
+  VIBE_EV_AREA = 11,    /* SDK 12, after vibe_areas(n): a controller's "area" buttons (an MPK's BANK − / +, TAP):
+                           value = -1 previous area, +1 next, 0 the same once more. Without vibe_areas the host steps
+                           through K1-K6, F1, F5, F6, MENU as before (OberVave, GROOVE). */
+  VIBE_EV_MEDIA = 12,   /* SDK 13, once the firmware asked vibe_media_sources: id VIBE_MEDIA_EV_SOURCES – a source came
+                           (down 1) or went (down 0: a stick pulled; value = how many there are now); id VIBE_MEDIA_EV_WRITTEN –
+                           a file written with vibe_media_create is complete (down 1) or failed (down 0), value = its handle;
+                           id VIBE_MEDIA_EV_READY – something the host said VIBE_MEDIA_PENDING for has come: ask again
+                           (sent once for all that came; a host that stops drawing – the plugin with its window closed –
+                           still sends it, so a firmware that reads on READY never stalls) */
   VIBE_EV_TRANSPORT = 8 /* SDK 7: the host's transport (the DAW in the plugin; a MIDI clock on the device and in the browser): id VIBE_TRANSPORT_PLAY: down 1 = it plays
                            (from the top, at this frame), 0 = it stopped; id VIBE_TRANSPORT_TEMPO: value = BPM (0 = the host
                            gives none any more: the firmware's own tempo again). Sent when it changes, tempo before play. */
@@ -266,6 +283,46 @@ int vibe_store_list(char *names, int max_bytes);
    vibe_on_event / vibe_on_draw and keep a buffer. */
 int vibe_store_read_at(const char *name, int offset, void *data, int bytes);
 
+/* ---- media (SDK 13): samples and songs that are not the firmware's own ---------------------------------------------
+   The host keeps the sources: on the VIBE its card (/root/vibe-media) and USB sticks, in the browser a folder the user
+   picked or dropped, in the plugin a folder from its settings. A firmware reads them, it never writes into them – except
+   into "VIBE FM/<its id>/" on the source the host picks for writing (recordings, exports).
+   A path is "<source>/<folders>/<file>": the source's key (from vibe_media_sources, stable – the same stick has the same
+   key tomorrow), then real UTF-8 names (up to 255 bytes a part, 1023 in all). No "..", no "." parts, no '\'.
+   Nothing here waits: the host reads in its own thread and answers from what it has – VIBE_MEDIA_PENDING (-2) means
+   "not yet, ask again" – when VIBE_EV_MEDIA / VIBE_MEDIA_EV_READY comes (or from the next vibe_on_draw; the host is
+   fetching it now and reads ahead). -1 = there is
+   no such thing (any more): the source was pulled, the file is gone – never a crash. A host older than SDK 13 answers
+   -1 to everything. Call these from vibe_on_event / vibe_on_draw / vibe_on_init – NEVER from vibe_on_audio: keep a
+   buffer that the audio plays from and fill it ahead. */
+#define VIBE_MEDIA_PENDING (-2)
+#define VIBE_MEDIA_PATH    1024       /* a path's buffer, with its 0 */
+enum { VIBE_MEDIA_EV_SOURCES, VIBE_MEDIA_EV_WRITTEN, VIBE_MEDIA_EV_READY };   /* ids of VIBE_EV_MEDIA */
+/* the sources, one per line: "<key>\t<flags>\t<label>\n" – flags: 'w' = writes go here, 'u' = removable (USB), 'n' = network.
+   Returns the bytes written (whole lines; 0 = no sources), -1 = this host has no media. The first call also asks for
+   VIBE_EV_MEDIA. */
+int vibe_media_sources(char *out, int max_bytes);
+/* a folder ("<key>" or "<key>/<folders>"): one entry per line, folders first, then files, each sorted by name –
+   "d\t\t<name>\n" a folder, "f\t<bytes>\t<name>\n" a file. Hidden names (".x") and links are left out. skip = entries to
+   leave out at the start (the next page: skip + the lines you got). Returns the bytes written (0 = no more), -1 = no
+   such folder, VIBE_MEDIA_PENDING. */
+int vibe_media_list(const char *folder, int skip, char *out, int max_bytes);
+/* 1 = a file, 2 = a folder, -1 = nothing there, VIBE_MEDIA_PENDING; *bytes and *mtime (seconds since 1970) may be 0 */
+int vibe_media_stat(const char *path, uint64_t *bytes, int64_t *mtime);
+/* up to `bytes` bytes from `offset` on. Returns the bytes read – may be fewer than asked, also before the end (read
+   on from where it stopped); 0 = past the end; -1 = gone; VIBE_MEDIA_PENDING = not here yet. */
+int vibe_media_read(const char *path, uint64_t offset, void *data, int bytes);
+/* a new file in "VIBE FM/<firmware id>/" on the host's writing source: `name` is a wish ("take 1.wav", one part); the host
+   makes it unique ("take 1 (2).wav") and puts the whole path into path_out (VIBE_MEDIA_PATH bytes are enough).
+   Returns a handle (> 0) or -1 (no writable source, a bad name, too many open: 8). */
+int vibe_media_create(const char *name, char *path_out, int max_bytes);
+/* add bytes to it. 0 = taken; -1 = failed (the source is gone or full: close it); VIBE_MEDIA_PENDING = the host is
+   still writing what it got before (a slow stick) – nothing was taken, offer it again */
+int vibe_media_append(int handle, const void *data, int bytes);
+/* finished: keep = 1 the file stays, 0 it is thrown away. Returns 0 (-1 = no such handle). The file appears under its
+   name only when it is complete; VIBE_EV_MEDIA / VIBE_MEDIA_EV_WRITTEN says when. */
+int vibe_media_close(int handle, int keep);
+
 /* ---- time (SDK 5) ---------------------------------------------------------------------------------------------- */
 /* The timeline: frames computed since the first vibe_on_audio (frame 0). vibe_frames() = the first frame of the next
    block (inside vibe_on_audio: of this block). */
@@ -292,6 +349,24 @@ void vibe_request(int what);                                           /* ask th
 #define VIBE_REQ_FIRMWARE_MENU 1                                       /*   show the firmware library */
 #define VIBE_REQ_AUDIO_INPUT   2                                       /*   switch on IN 1/IN 2 (browser: ask permission) */
 #define VIBE_REQ_RESTART       3                                       /*   start the firmware afresh (after its own deletes) */
+#define VIBE_REQ_SPOTIFY       4                                       /*   SDK 12: Spotify Connect for this firmware (VIBE only) */
+#define VIBE_REQ_STREAM_OFF    5                                       /*   SDK 12: end the stream (and Spotify Connect) */
+
+/* ---- SDK 12: a stream from the host – Spotify Connect on the VIBE (28.10.2026) -------------------------------------
+   vibe_request(VIBE_REQ_SPOTIFY): the VIBE shows up as a speaker in the Spotify app (Premium); what plays there arrives
+   here, with its title. It runs only for the firmware that asked, until VIBE_REQ_STREAM_OFF or the firmware ends. Other
+   hosts (the browser, the plugin) leave state at 0. Read it in vibe_on_audio: vibe_stream_read gives up to max frames at
+   info->rate (44100) – resample to your rate yourself (as for an MP3). */
+typedef struct {
+  int32_t state;                      /* 0 none, 1 waiting (open the Spotify app: pick the VIBE), 2 playing, 3 paused */
+  int32_t rate;                       /* the stream's sample rate (Hz) */
+  int32_t seq;                        /* +1 whenever the fields below change (a new track, play, pause) */
+  int32_t dur_ms, pos_ms;             /* the track's length, the position at the last change */
+  char name[32], title[96], artist[96], album[96];   /* name: the speaker's name in the app ("VIBE PLAYER") */
+} vibe_stream_info;
+const vibe_stream_info *vibe_stream(void);
+void vibe_areas(int count);                            /* SDK 12: the firmware has its own n areas: VIBE_EV_AREA instead of the keys */
+int vibe_stream_read(float *l, float *r, int max);     /* frames read (0 = none waiting: play silence) */
 
 /* RGB565 helpers */
 #define VIBE_RGB(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | ((b) >> 3)))

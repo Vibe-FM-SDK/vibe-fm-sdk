@@ -215,6 +215,7 @@ export class Controllers {
     if (b && b.type === 'cycle') {   // − / +: through the six keys, then F1 MIXER, F5 SAVE, F6 GLOBAL and MENU (the overview) –
                                      // a controller without F keys reaches every area; 'again' = the same key once more
       if (!(isNote ? down : v > 0)) return;
+      if (this.fwAreas > 0) { this.send(11, 0, 1, b.dir); return; }   // (SDK 12) the firmware's own areas (PLAYER): VIBE_EV_AREA
       if (b.dir === 0 && this.cycleAt === undefined) return;   // 'again' before any area was picked: nothing to repeat
       this.cycleAt = ((this.cycleAt ?? -1) + b.dir + CYCLE.length) % CYCLE.length;
       const [id, name] = CYCLE[this.cycleAt];

@@ -90,6 +90,78 @@ int vibe_store_read_at(const char *n, int off, void *d, int bytes) {
   return vibe_host_store(5, n, l, d, bytes);
 }
 
+/* media (SDK 13): ops 6-12 of the same import (Protokoll 13a). A path is checked here as for the store, so a host gets
+   only clean ones (it checks again: a firmware without the SDK may send anything): the source's key (1-47 of A-Z a-z
+   0-9 _ -), then parts of 1-255 bytes of well-formed UTF-8 without control characters or '\', not "." or "..";
+   1023 bytes in all. part_only: one part, not starting with '.' (the wish for vibe_media_create). */
+static int utf8_len(const unsigned char *s, int n)     /* bytes of the well-formed character at s, 0 = broken */
+{
+  unsigned c = s[0];
+  if (c < 0x80) return 1;
+  int k = c >= 0xF0 && c <= 0xF4 ? 4 : c >= 0xE0 && c < 0xF0 ? 3 : c >= 0xC2 && c < 0xE0 ? 2 : 0;
+  if (!k || k > n) return 0;
+  for (int i = 1; i < k; i++) if ((s[i] & 0xC0) != 0x80) return 0;
+  if (k == 3 && ((c == 0xE0 && s[1] < 0xA0) || (c == 0xED && s[1] >= 0xA0))) return 0;   /* (overlong, surrogate) */
+  if (k == 4 && ((c == 0xF0 && s[1] < 0x90) || (c == 0xF4 && s[1] >= 0x90))) return 0;
+  return k;
+}
+static int media_path(const char *p, int part_only)
+{
+  if (!p) return 0;
+  int n = 0; while (p[n]) { if (++n > 1023) return 0; }
+  const unsigned char *s = (const unsigned char *)p; int i = 0;
+  if (!part_only) {
+    for (; i < n && s[i] != '/'; i++) { unsigned char c = s[i]; if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-')) return 0; }
+    if (i < 1 || i > 47) return 0;
+    if (i == n) return n;                          /* (the source itself) */
+    i++;
+  }
+  for (;;) {                                       /* a part */
+    int st = i;
+    while (i < n && s[i] != '/') {
+      if (s[i] < 0x20 || s[i] == 0x7F || s[i] == '\\') return 0;
+      int k = utf8_len(s + i, n - i); if (!k) return 0; i += k;
+    }
+    int l = i - st;
+    if (l < 1 || l > 255 || (s[st] == '.' && (l == 1 || (l == 2 && s[st + 1] == '.')))) return 0;
+    if (part_only) return i == n && s[st] != '.' ? n : 0;
+    if (i == n) return n;
+    i++;
+  }
+}
+int vibe_media_sources(char *out, int max) { return out && max > 0 ? vibe_host_store(6, "", 0, out, max) : -1; }
+int vibe_media_list(const char *dir, int skip, char *out, int max)
+{
+  int l = media_path(dir, 0); if (!l || !out || max < 4 || skip < 0) return -1;
+  unsigned char *b = (unsigned char *)out; b[0] = (unsigned char)skip; b[1] = (unsigned char)(skip >> 8); b[2] = (unsigned char)(skip >> 16); b[3] = (unsigned char)(skip >> 24);
+  return vibe_host_store(7, dir, l, out, max);
+}
+int vibe_media_stat(const char *path, uint64_t *bytes, int64_t *mtime)
+{
+  int l = media_path(path, 0); if (!l) return -1;
+  uint64_t t[2] = { 0, 0 }; int r = vibe_host_store(8, path, l, t, 16);
+  if (bytes) *bytes = r > 0 ? t[0] : 0; if (mtime) *mtime = r > 0 ? (int64_t)t[1] : 0;
+  return r;
+}
+int vibe_media_read(const char *path, uint64_t off, void *data, int bytes)
+{
+  int l = media_path(path, 0); if (!l || !data || bytes < 1) return -1;
+  if (bytes < 8) {                                 /* (the offset travels in the data's first 8 bytes) */
+    unsigned char t[8]; int r = vibe_media_read(path, off, t, 8);
+    if (r > bytes) r = bytes; for (int i = 0; i < r; i++) ((unsigned char *)data)[i] = t[i];
+    return r;
+  }
+  unsigned char *b = data; for (int i = 0; i < 8; i++) b[i] = (unsigned char)(off >> (8 * i));
+  return vibe_host_store(9, path, l, data, bytes);
+}
+int vibe_media_create(const char *name, char *path_out, int max)
+{
+  int l = media_path(name, 1); if (!l || !path_out || max < 2) return -1;
+  path_out[0] = 0; return vibe_host_store(10, name, l, path_out, max);
+}
+int vibe_media_append(int h, const void *data, int bytes) { return h > 0 && data && bytes >= 0 ? vibe_host_store(11, 0, h, (void *)data, bytes) : -1; }
+int vibe_media_close(int h, int keep) { return h > 0 ? vibe_host_store(12, 0, h, 0, keep ? 1 : 0) : -1; }
+
 /* ================================================================ 2. drawing ==================================== */
 static uint16_t *FB;
 #define W VIBE_SCREEN_W
@@ -523,6 +595,25 @@ void  vibe_output_names(const char *l, const char *r) { vout.name_l = l; vout.na
 float *vibe_cue(int c) { if (!(vout.flags & VIBE_OUT_CUE) || c < 0 || c > 1) return 0; vout.cue_written = 1; return vout.cue[c]; }
 int   vibe_cue_host(void) { return vout.host_cue; }
 VIBE_EXPORT(vibe_wasm_outputs) void *vibe_wasm_outputs(void) { return &vout; }
+/* ---- SDK 12: the stream (Spotify Connect) – a table the host fills: the info (vibe_stream_info, 340 bytes), then
+   w @340, r @344 (frames, ever counting), L[STREAM_N] @348, R[STREAM_N] after it. The host writes frames and moves w,
+   the firmware reads them and moves r. */
+#define STREAM_N 16384
+static struct { vibe_stream_info info; volatile uint32_t w, r; float L[STREAM_N], R[STREAM_N]; } stream;
+_Static_assert(sizeof(vibe_stream_info) == 340, "the stream table's layout is the hosts' (w @340)");
+VIBE_EXPORT(vibe_wasm_stream) void *vibe_wasm_stream(void) { return &stream; }
+static int fw_areas;                              /* (SDK 12) vibe_areas: the host sends VIBE_EV_AREA for − / + */
+void vibe_areas(int count) { fw_areas = count > 0 ? count : 0; }
+VIBE_EXPORT(vibe_wasm_areas) int vibe_wasm_areas(void) { return fw_areas; }
+const vibe_stream_info *vibe_stream(void) { return &stream.info; }
+int vibe_stream_read(float *l, float *r, int max)
+{
+  uint32_t w = stream.w; VIBE_ACQUIRE();
+  uint32_t rd = stream.r, n = w - rd; if (n > (uint32_t)max) n = (uint32_t)max; if (n > STREAM_N) n = 0;
+  for (uint32_t i = 0; i < n; i++) { l[i] = stream.L[(rd + i) % STREAM_N]; r[i] = stream.R[(rd + i) % STREAM_N]; }
+  VIBE_RELEASE(); stream.r = rd + n;
+  return (int)n;
+}
 
 /* ---- SDK 9: the Editor's description – tables the host reads once after vibe_on_init (Protokoll 9.2) ---------------- */
 typedef struct { const char *tab; uint32_t rgb; } vibe_tab_color;
@@ -564,6 +655,44 @@ VIBE_EXPORT(vibe_wasm_editor_points) const float *vibe_wasm_editor_points(void) 
 static char ed_tabbuf[32];                        /* (the host writes the tab's name here and passes its address to _curve) */
 VIBE_EXPORT(vibe_wasm_editor_tabbuf) char *vibe_wasm_editor_tabbuf(void) { return ed_tabbuf; }
 
+/* SDK 12: SHIFT + DATA = the soft keys, in every firmware (Sven 28.10.: a controller without F keys – an MPK mini – reaches
+ * them): while SHIFT is held, DATA moves a frame over F1-F6 (drawn over the firmware's picture, at the house layout's
+ * places), DATA pressed (or ENTER) presses that key – SHIFT let go for it first, so it is the plain F key. The firmware
+ * sees neither the turns nor that press. (OberVave's and GROOVE's SHIFT + DATA tempo moved to their GLOBAL pages.) */
+static int sk_shift, sk_on, sk_cur, sk_swallow = -1; static float sk_acc;
+static void sk_press(void)
+{
+  vibe_event f = { VIBE_EV_BUTTON, (uint8_t)(VB_F1 + sk_cur), 1, { 0, 0, 0 }, 0.9f }; vibe_on_event(&f); f.down = 0; f.value = 0; vibe_on_event(&f);
+  sk_on = 0;
+}
+static int sk_take(const vibe_event *e)          /* 1 = the soft-key gesture took it */
+{
+  if (e->type == VIBE_EV_BUTTON && e->id == sk_swallow) { if (!e->down) sk_swallow = -1; return 1; }   /* (the press's release) */
+  if (e->type == VIBE_EV_BUTTON && e->id == VB_SHIFT) { sk_shift = e->down; if (!e->down) sk_on = 0; return 0; }
+  if (sk_shift && e->type == VIBE_EV_ENCODER && e->id == VE_DATA) {
+    if (!sk_on) {                                /* the frame appears: SHIFT let go for the firmware (value -1 = "not a tap"), so it shows its plain keys – the ones pressed */
+      sk_on = 1; sk_acc = 0;
+      vibe_event u = { VIBE_EV_BUTTON, VB_SHIFT, 0, { 0, 0, 0 }, -1.0f }; vibe_on_event(&u);
+    }
+    sk_acc += e->value;
+    while (sk_acc >= 1) { sk_acc -= 1; if (sk_cur < 5) sk_cur++; }
+    while (sk_acc <= -1) { sk_acc += 1; if (sk_cur > 0) sk_cur--; }
+    return 1;
+  }
+  if (sk_on && e->type == VIBE_EV_BUTTON && (e->id == VB_ENTER || e->id == VB_DATA_PUSH)) { if (e->down) { sk_swallow = e->id; sk_press(); } return 1; }
+  return 0;
+}
+static void sk_draw(void)                        /* the frame over the soft key, its caption above */
+{
+  if (!sk_on || !FB) return;
+  int x = 3 + sk_cur * 80;
+  vg_frame(x - 2, 282, 78, 36, 3, 0xFF8A1F);
+  char t[24] = "F"; t[1] = (char)('1' + sk_cur); t[2] = ' '; t[3] = 0;
+  { int k = 3; for (int i = 0; labels[VB_F1 + sk_cur][i] && k < 12; i++) t[k++] = labels[VB_F1 + sk_cur][i]; t[k] = 0; }
+  int w = vg_text_width(t, VG_BOLD) + 16, cx = x + 37 - w / 2; if (cx < 2) cx = 2; if (cx + w > VIBE_SCREEN_W - 2) cx = VIBE_SCREEN_W - 2 - w;
+  vg_round(cx, 256, w, 22, 5, 0xFF8A1F); vg_text(t, cx + w / 2, 260, VG_BOLD, 0x111214, VG_CENTER);
+}
+
 /* SDK 10, VF_ON_HOLD: ENTER / DATA pressed held back until let go – short: to the firmware, long (0.6 s): FOCUS on / off */
 static int vf_hold = -1, vf_fired; static uint64_t vf_hold_t;
 static void vf_hold_check(void)
@@ -573,6 +702,7 @@ static void vf_hold_check(void)
 VIBE_EXPORT(vibe_wasm_event) void vibe_wasm_event(int type, int id, int down, float value, int midi) {
   vibe_event e = { (uint8_t)type, (uint8_t)id, (uint8_t)down, { (uint8_t)(midi & 255), (uint8_t)((midi >> 8) & 255), (uint8_t)((midi >> 16) & 255) }, value };
   vf_hold_check();
+  if (sk_take(&e)) return;                       /* (SDK 12: SHIFT + DATA = the soft keys) */
   if (vf_md == VF_ON_HOLD && type == VIBE_EV_BUTTON && (id == VB_ENTER || id == VB_DATA_PUSH)) {
     if (down) { if (vf_hold < 0) { vf_hold = id; vf_hold_t = vibe_frames(); vf_fired = 0; } return; }
     if (id != vf_hold) return;
@@ -603,7 +733,7 @@ VIBE_EXPORT(vibe_wasm_audio) void vibe_wasm_audio(int frames, int has_input) {
   }
 }
 VIBE_EXPORT(vibe_wasm_rear) void *vibe_wasm_rear(void) { return &rear; }
-VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); vg_begin(framebuffer); vibe_on_draw(framebuffer); return framebuffer; }
+VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); vg_begin(framebuffer); vibe_on_draw(framebuffer); vg_begin(framebuffer); sk_draw(); return framebuffer; }
 VIBE_EXPORT(vibe_wasm_leds) void *vibe_wasm_leds(void) { return &leds; }
 VIBE_EXPORT(vibe_wasm_labels) void *vibe_wasm_labels(void) { return labels; }   /* VB_COUNT x 8 chars */
 #endif /* VIBE_HOST_ONLY */

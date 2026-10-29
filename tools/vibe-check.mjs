@@ -6,6 +6,7 @@
 import fs from 'fs';
 import path from 'path';
 import { execFileSync } from 'child_process';
+import { MediaHost } from './media-host.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
@@ -81,14 +82,20 @@ if (badImp.length || missing.length) report();
 
 // ---------------------------------------------------------------- a host that watches ----------------------------------
 const NAME = /^(?:[a-z0-9_-][a-z0-9._-]{0,30}|(?=.{1,127}$)[a-z0-9_-][a-z0-9._-]{0,62}(?:\/[a-z0-9_-][a-z0-9._-]{0,62}){1,4})$/;   // SDK 4: paths
+// SDK 13: the media a host offers – the card (writes go there) and a stick with UTF-8 names, folders and a big file; the
+// stick is pulled halfway through the random run and comes back later (a firmware must get -1, never crash)
+const STICK = () => { const big = Buffer.alloc(2 << 20); for (let i = 0; i < big.length; i++) big[i] = (i * 7 + (i >> 9)) & 255;
+  return { 'Grüße – Ä.wav': big, 'b.mp3': Buffer.from('ID3hello'), 'Drums/Kicks/k1.wav': Buffer.alloc(4000), 'Drums/s1.wav': Buffer.alloc(100), 'Ünïcödé 日本/x.txt': Buffer.from('x') }; };
+const mediaHost = () => new MediaHost({ fw: id, pending: 2, sources: { sd: { files: {}, write: true, label: 'VIBE' }, 'usb-CHECK': { files: STICK(), usb: true, label: 'STICK' } } });
 function host(files) {
-  const h = { files, inAudio: false, audioStore: 0, audioLog: 0, logs: [], requests: [], badNames: 0, reads: 0, writes: 0, inst: null, midi: { n: 0, bad: 0, clock: 0 } };
+  const h = { files, inAudio: false, media: mediaHost(), mediaAudio: 0, audioStore: 0, audioLog: 0, logs: [], requests: [], badNames: 0, reads: 0, writes: 0, inst: null, midi: { n: 0, bad: 0, clock: 0 } };
   const mem = () => h.inst.exports.memory.buffer, str = (p, n) => Buffer.from(mem(), p, n).toString();
   h.inst = new WebAssembly.Instance(mod, { env: {
     vibe_host_log: (p, n) => { if (h.inAudio) h.audioLog++; if (h.logs.length < 50) h.logs.push(str(p, n)); },
     vibe_host_request: (w) => h.requests.push(w),
     vibe_host_store: (op, np, nl, dp, len) => {
       if (h.inAudio) h.audioStore++;
+      if (op >= 6) { if (h.inAudio) h.mediaAudio++; return h.media.store(op, mem(), np, nl, dp, len); }   // SDK 13
       if (op === 4) { const b = Buffer.from([...files.keys()].sort().map((k) => k + '\n').join('')); let n = 0; for (const k of [...files.keys()].sort()) { if (n + k.length + 1 > len) break; n += k.length + 1; } new Uint8Array(mem(), dp, n).set(b.subarray(0, n)); return n; }   // SDK 4: list
       const name = str(np, nl); if (!NAME.test(name)) { h.badNames++; return -1; }
       const f = files.get(name);
@@ -145,6 +152,9 @@ function run(h, seconds, fuzz) {
     const mem0 = x.memory.buffer.byteLength, io = x.vibe_wasm_io();
     const blocks = Math.ceil(seconds * SR / BLOCK), held = [];
     for (let b = 0; b < blocks; b++) {
+      if (fuzz && b === Math.floor(blocks / 2)) h.media.remove('usb-CHECK');                       // (SDK 13: the stick pulled …
+      if (fuzz && b === Math.floor(blocks * 3 / 4)) h.media.add('usb-CHECK', { files: STICK(), usb: true, label: 'STICK' });   // … and back)
+      for (const m of h.media.events()) { last.push([12, m.id, m.down, m.value, 0]); if (last.length > 6) last.shift(); x.vibe_wasm_event(12, m.id, m.down, m.value, 0); }
       if (fuzz) for (let k = pick(3); k > 0; k--) { fuzzEvent(x, held); hunt(x, 'event ' + JSON.stringify(last[last.length - 1])); }
       if (fuzz && rnd() < 0.05) { const io4 = new Float32Array(x.memory.buffer, io, 1024); for (let i = 0; i < BLOCK; i++) { io4[i] = rnd() * 2 - 1; io4[768 + i] = rnd() * 2 - 1; } }
       const has = fuzz && out.version >= 2 ? pick(4) : 0;
@@ -234,6 +244,16 @@ const ms = r1.ms.slice(Math.floor(r1.ms.length * 0.02)).sort((a, b) => a - b), b
 if (ms.length) {
   const mean = ms.reduce((a, b) => a + b, 0) / ms.length, p999 = ms[Math.floor(ms.length * 0.999)], max = ms[ms.length - 1];
   check('CPU', null, `mean ${(mean / budget * 100).toFixed(1)} % · 99.9th percentile ${(p999 / budget * 100).toFixed(1)} % · peak ${(max / budget * 100).toFixed(0)} % of a 128-frame block (Node/V8 on this machine; device limit to follow)`);
+}
+{ // SDK 13: media – only from the control flow, clean paths, the pulled stick survived (Robustness above)
+  const c = h1.media.count, used = c.sources + c.list + c.stat + c.read + c.create;
+  if (!used) check('Media', null, 'uses no media (vibe_media_*)');
+  else {
+    check('Media', !h1.mediaAudio, h1.mediaAudio ? `${h1.mediaAudio}× vibe_media_* from the audio (MUST NOT)` : 'media only from events and draw');
+    check('Media', !c.badPath, c.badPath ? `${c.badPath}× an invalid path or name` : 'paths valid');
+    check('Media', null, `${c.sources}× sources · ${c.list}× folders · ${c.read}× read (${(c.bytesRead / 1024).toFixed(0)} KB, ${c.pending}× answered "not yet") · ${c.written.length} files written · stick pulled after ${(SECONDS / 2).toFixed(0)} s, ${c.gone}× -1 after that`);
+    if (h1.media.handles.size) check('Media', null, `${h1.media.handles.size} file(s) still open at the end`);
+  }
 }
 check('Storage', !h1.badNames, h1.badNames ? `${h1.badNames}× invalid file name` : 'file names valid');
 

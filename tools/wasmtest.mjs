@@ -9,15 +9,23 @@
 //         optional "daw": {"bpm":120, "at":1.0, "start":6, "loop":[4,12], "sig":[4,4]} – a DAW (SDK 8, vibe_transport): it
 //         plays from "at" seconds at beat "start" (quarter notes), looping if "loop"; sends TRANSPORT tempo + PLAY too
 // "cue": true – this host plays the headphones' own signal (SDK 9, Protokoll 8.1): the firmware's cue goes to cue.wav
+// "media": {"usb-1": {"dir": "songs", "usb": true}, "sd": {"dir": "@out", "write": true}} – SDK 13 (vibe_media_*): sources the
+//         firmware reads (folders relative to the script; "@out" = <outdir>/media-<key>), "media_pending": n – each new
+//         thing is answered "not yet" n times first (default 1); a step's "media_remove": "usb-1" pulls a source,
+//         "media_add": {"usb-1": {...}} plugs one in. VIBE_EV_MEDIA goes to the firmware before the next block.
 // output: audio.wav, the shots as PNG, cue.wav (with "cue"), and midi.json (SDK 9: what the firmware sent – [{"t": seconds, "bytes": [..]}]) when it sent any
 import fs from 'fs';
 import zlib from 'zlib';
+import { MediaHost } from './media-host.mjs';
 const [, , wasmFile, scriptFile, outDir = '.', rateArg] = process.argv;
 const script = scriptFile ? JSON.parse(fs.readFileSync(scriptFile, 'utf8')) : { seconds: 2, steps: [] };
 const sr = rateArg ? +rateArg : 48000, block = 128;
 let inst;
 const logs = [], requests = [], files = new Map();
+let inAudio = false, mediaInAudio = 0;
 const storeDir = script.store ? (script.store.startsWith('/') ? script.store : scriptFile.replace(/[^/]*$/, '') + script.store) : null;
+const mediaSrc = (m) => Object.fromEntries(Object.entries(m || {}).map(([k, v]) => { const d = v.dir === '@out' ? `${outDir}/media-${k}` : v.dir && (v.dir.startsWith('/') ? v.dir : scriptFile.replace(/[^/]*$/, '') + v.dir); if (v.dir === '@out') fs.mkdirSync(d, { recursive: true }); return [k, { ...v, dir: d }]; }));
+const media = new MediaHost({ fw: wasmFile.replace(/^.*\//, '').replace(/\.wasm$/, ''), sources: mediaSrc(script.media), pending: script.media_pending ?? 1 });
 if (storeDir) { fs.mkdirSync(storeDir, { recursive: true }); for (const n of fs.readdirSync(storeDir, { recursive: true })) if (fs.statSync(storeDir + '/' + n).isFile()) files.set(n.split(/[\\/]/).join('/'), fs.readFileSync(storeDir + '/' + n)); }   // (SDK 4: folders)
 inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(wasmFile)), { env: {
   vibe_host_log: (p, n) => logs.push(Buffer.from(inst.exports.memory.buffer, p, n).toString()),
@@ -31,6 +39,7 @@ inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(wasmFile)
     if (op === 3) { if (!f) return -1; files.delete(name); if (storeDir) fs.rmSync(storeDir + '/' + name, { force: true }); return 0; }
     if (op === 4) { const b = Buffer.from([...files.keys()].sort().map((k) => k + '\n').join('')); let n = 0; for (const k of [...files.keys()].sort()) { if (n + k.length + 1 > len) break; n += k.length + 1; } new Uint8Array(inst.exports.memory.buffer, dp, n).set(b.subarray(0, n)); return n; }
     if (op === 5) { if (!f) return -1; const off = new DataView(inst.exports.memory.buffer).getUint32(dp, true), n = Math.max(0, Math.min(len, f.length - off)); if (n) new Uint8Array(inst.exports.memory.buffer, dp, n).set(f.subarray(off, off + n)); return n; }
+    if (op >= 6) { if (inAudio) mediaInAudio++; return media.store(op, inst.exports.memory.buffer, np, nl, dp, len); }   // SDK 13
     return -1;
   } } });
 const e = inst.exports;
@@ -80,14 +89,17 @@ for (let b = 0; b < total; b++) {
     }
     if (s.ev) e.vibe_wasm_event(s.ev[0], s.ev[1], s.ev[2], s.ev[3] ?? 0, s.ev[4] ?? 0);
     if (s.shot) shots.push(s.shot);
+    if (s.media_remove) media.remove(s.media_remove);
+    if (s.media_add) for (const [k, v] of Object.entries(mediaSrc(s.media_add))) media.add(k, v);
   }
+  for (const m of media.events()) e.vibe_wasm_event(12, m.id, m.down, m.value, 0);   // SDK 13: VIBE_EV_MEDIA
   if (in1 || in2) {
     const io = new Float32Array(e.memory.buffer, e.vibe_wasm_io(), 256 * 4);
     if (in1) io.set(slice(in1, b * block), 0);
     if (in2) io.set(slice(in2, b * block), 768);
   }
   dawWrite(b);
-  const t0 = performance.now(); e.vibe_wasm_audio(block, (in1 ? 1 : 0) | (in2 ? 2 : 0)); audioMs += performance.now() - t0;
+  inAudio = true; const t0 = performance.now(); e.vibe_wasm_audio(block, (in1 ? 1 : 0) | (in2 ? 2 : 0)); audioMs += performance.now() - t0; inAudio = false;
   midiDrain(b);
   if (outT) { const dv = new DataView(e.memory.buffer); if ((dv.getInt32(outT, true) & 2) && dv.getInt32(outT + 8, true)) { cueBlocks++; const c = new Float32Array(e.memory.buffer, outT + 20, 512); CL.set(c.subarray(0, block), b * block); CR.set(c.subarray(256, 256 + block), b * block); } }
   const io = new Float32Array(e.memory.buffer, e.vibe_wasm_io(), 256 * 3);
@@ -101,7 +113,8 @@ wav(`${outDir}/audio.wav`);
 if (cueBlocks) { const sl = L.slice(), sr2 = R.slice(); L.set(CL); R.set(CR); wav(`${outDir}/cue.wav`); L.set(sl); R.set(sr2); }
 if (midiOut.length) fs.writeFileSync(`${outDir}/midi.json`, JSON.stringify(midiOut));
 console.log(JSON.stringify({ peak: +peak.toFixed(3), rms: +Math.sqrt(sum / L.length).toFixed(4), nan,
-  cpu_audio_percent: +(audioMs / (script.seconds * 1000) * 100).toFixed(1), draw_ms: +(drawMs / draws).toFixed(2), draw_max_ms: +drawMax.toFixed(2), midi_out: midiOut.length, cue_blocks: cueBlocks, logs, requests }));
+  cpu_audio_percent: +(audioMs / (script.seconds * 1000) * 100).toFixed(1), draw_ms: +(drawMs / draws).toFixed(2), draw_max_ms: +drawMax.toFixed(2), midi_out: midiOut.length, cue_blocks: cueBlocks,
+  ...(media.count.sources ? { media: { ...media.count, in_audio: mediaInAudio } } : {}), logs, requests }));
 
 function png(px, file) {
   const raw = Buffer.alloc(320 * 1441);
