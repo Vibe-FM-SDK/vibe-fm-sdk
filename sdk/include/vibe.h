@@ -52,7 +52,7 @@
                                       does not offer its parameters. (26.10.2026) */
 
 /* ---- the device ---------------------------------------------------------------------------------------------- */
-#define VIBE_SCREEN_W   480        /* 3.5" colour display, RGB565 */
+#define VIBE_SCREEN_W   480        /* 4.0" colour display, RGB565 */
 #define VIBE_SCREEN_H   320
 #define VIBE_MAX_BLOCK  256        /* the host asks for at most this many audio frames per call – usually fewer, and
                                       not always the same number (the browser: 128, a DAW: its buffer, split at events) */

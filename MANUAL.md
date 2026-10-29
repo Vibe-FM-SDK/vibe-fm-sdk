@@ -12,7 +12,7 @@ marked *(hardware)*.
 
 | | |
 |---|---|
-| **Display** | 3.5", 480 × 320, in colour. It always shows what the controls do right now. |
+| **Display** | 4.0", 480 × 320, in colour. It always shows what the controls do right now. |
 | **F1 – F6** | the soft keys under the display. Their captions are drawn on the display. |
 | **K1 – K6** | six colour keys right of ENTER: the firmware's areas. The house style is **SOUND · ENV · LFO · ARP · FX · SEQ**. |
 | **Encoders 1 – 4** | the four values shown on the display |

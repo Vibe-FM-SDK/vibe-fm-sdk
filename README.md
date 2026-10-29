@@ -224,7 +224,7 @@ Everything here exists for one reason: **your firmware is meant to run natively 
 |---|---|
 | **Brain** | a quad-core ARM Cortex-A53 (1.5 GHz, 1 GB RAM) running Linux. Your `.wasm` is compiled to native ARM code ahead of time (WAMR AOT): measured at 1.1–1.2× the cost of a native build, bit-exact with the plugin. |
 | **Controls** | 25 velocity keys, 16 RGB pads, encoders 1–4, A, B and a DATA wheel, F1–F6 under the display, six keys right of ENTER, a play section, SHIFT, OCT −/+ – exactly the enums in `vibe.h`. |
-| **Display** | 3.5" colour, 480 × 320 – your `vibe_on_draw` picture, 1:1. |
+| **Display** | 4.0" colour, 480 × 320 – your `vibe_on_draw` picture, 1:1. |
 | **I/O** | OUT L/R, a headphone out with its own signal, IN 1 / IN 2 (line, mic, Hi-Z), PEDAL, CV OUT, GATE OUT, CV IN, CLK IN, MIDI IN/OUT (5-pin DIN), USB-C (MIDI and audio to a computer), a USB host port (controllers, sticks), microSD, Wi-Fi and Bluetooth MIDI. |
 
 That is why there is no heap, no libc, no threads of your own and no free-form GUI: a firmware that keeps these rules
@@ -238,7 +238,7 @@ always added, never taken away).
 
 ## What's next – and what is not there yet
 
-- **The VIBE FM hardware:** your `.wasm` runs there unchanged – 25 keys, 16 pads, encoders, a 3.5" colour display, audio
+- **The VIBE FM hardware:** your `.wasm` runs there unchanged – 25 keys, 16 pads, encoders, a 4.0" colour display, audio
   and CV in/out.
 - **A place on thefirmwarehub.com** for what you build.
 - **The VIBE FM Protocol specification** in English (the rules behind `vibe-check`, the two-flows mode).
