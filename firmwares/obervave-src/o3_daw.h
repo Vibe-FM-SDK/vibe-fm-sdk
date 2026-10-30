@@ -10,12 +10,18 @@
 static const uint8_t DAW_P[DAW_PER] = {P_CUTOFF, P_RESO, P_FENV_AMT, P_AA, P_AR, P_LFO_RATE, P_LFO_FLT, P_VOLUME};
 static const char *const DAW_NAME[DAW_PER] = {"Cutoff", "Resonance", "Env Amount", "Attack", "Release", "LFO Rate",
                                               "LFO > Filter", "Volume"};
-#define DAW_MAX 240
+#define DAW_MAX 256
 static vibe_param daw_list[DAW_MAX];
 static const char *daw_grp[DAW_MAX];
 static uint8_t daw_t[DAW_MAX], daw_pi[DAW_MAX];          /* each one's track and parameter */
 static char daw_id[DAW_MAX][24], daw_nm[DAW_MAX][28], daw_gn[NTRK + 1][NPAGE][20];
 static int DAW_N;
+static int DAW_PRESET_BASE = -1;
+static char obv_preset_choice_buf[NPROG][24];
+static const char *OBV_PRESET_CHOICES[NPROG + 1];
+static const char *const TRK_PRESET_GRP[NTRK] = {
+    "A \xc2\xb7 PRESET", "B \xc2\xb7 PRESET", "C \xc2\xb7 PRESET", "D \xc2\xb7 PRESET"
+};
 
 static int daw_bip(uint32_t p) { return PDEF[p].kind == K_BIP; }            /* (shown -64..63 around the middle) */
 static float daw_off(uint32_t p) { return daw_bip(p) ? 64.0f : PDEF[p].kind == K_SEMI ? 24.0f : 0.0f; }
@@ -151,17 +157,179 @@ static void daw_init(void)                      /* (after the tracks' sounds are
         }
     for (p = 0; p < NPARAM; p++) if (is_a_only(p)) daw_add(0, p, 0);   /* the effects, once */
     mix_params();                                /* (SDK 11: the mixer, after everything else) */
+
+    /* Populate all 99 preset names for OberVave */
+    for (uint32_t i = 0; i < NPROG; i++) {
+        char name[PATCH_NAME + 1];
+        prog_name(i, name);
+        if (!name[0]) {
+            name[0] = 'I'; name[1] = 'N'; name[2] = 'I'; name[3] = 'T'; name[4] = 0;
+        }
+        uint32_t pnum = i + 1u;
+        char *dst = obv_preset_choice_buf[i];
+        dst[0] = (char)('0' + (pnum / 10u));
+        dst[1] = (char)('0' + (pnum % 10u));
+        dst[2] = ':';
+        dst[3] = ' ';
+        int k = 0;
+        while (name[k] && k < 18) {
+            dst[4 + k] = name[k];
+            k++;
+        }
+        dst[4 + k] = '\0';
+        OBV_PRESET_CHOICES[i] = dst;
+    }
+
+    DAW_PRESET_BASE = DAW_N;
+    for (t = 0; t < NTRK; t++) {
+        static const char *const pids[NTRK] = {"preset_a", "preset_b", "preset_c", "preset_d"};
+        if (DAW_N >= DAW_MAX) break;
+        daw_list[DAW_N] = (vibe_param){pids[t], "Preset", 0.0f, (float)(NPROG - 1), (float)trk_prog[t], "", NPROG, OBV_PRESET_CHOICES};
+        daw_grp[DAW_N] = TRK_PRESET_GRP[t];
+        DAW_N++;
+    }
+
     vibe_params(daw_list, DAW_N);
     vibe_param_groups(daw_grp);
+}
+
+static void daw_update_preset_names(void)
+{
+    for (uint32_t i = 0; i < NPROG; i++) {
+        char name[PATCH_NAME + 1];
+        prog_name(i, name);
+        if (!name[0]) {
+            name[0] = 'I'; name[1] = 'N'; name[2] = 'I'; name[3] = 'T'; name[4] = 0;
+        }
+        uint32_t pnum = i + 1u;
+        char *dst = obv_preset_choice_buf[i];
+        dst[0] = (char)('0' + (pnum / 10u));
+        dst[1] = (char)('0' + (pnum % 10u));
+        dst[2] = ':';
+        dst[3] = ' ';
+        int k = 0;
+        while (name[k] && k < 18) {
+            dst[4 + k] = name[k];
+            k++;
+        }
+        dst[4 + k] = '\0';
+        OBV_PRESET_CHOICES[i] = dst;
+    }
+    OBV_PRESET_CHOICES[NPROG] = 0;
+}
+
+extern uint8_t cc_map[128];
+static uint8_t cc_of_param(uint32_t p)
+{
+    if (p < NPARAM && PDEF[p].cc) return PDEF[p].cc;
+    for (uint32_t c = 20; c < 119; c++) {
+        if (cc_map[c] == p + 1u) return (uint8_t)c;
+    }
+    return 0;
+}
+
+static char obv_help_buf[DAW_MAX][64];
+static void build_cc_help(uint32_t j, uint8_t cc, const char *desc)
+{
+    char *dst = obv_help_buf[j];
+    int k = 0;
+    if (cc) {
+        dst[k++] = '['; dst[k++] = 'C'; dst[k++] = 'C'; dst[k++] = ' ';
+        if (cc >= 100) dst[k++] = (char)('0' + (cc / 100));
+        if (cc >= 10)  dst[k++] = (char)('0' + ((cc / 10) % 10));
+        dst[k++] = (char)('0' + (cc % 10));
+        dst[k++] = ']';
+        if (desc && desc[0]) dst[k++] = ' ';
+    }
+    if (desc && desc[0]) {
+        int i = 0;
+        while (desc[i] && k < 62) dst[k++] = desc[i++];
+    }
+    dst[k] = 0;
+    vibe_param_help(j, dst);
+}
+
+static uint8_t obv_syx_buf[128];
+static int hex_nibble(char c)
+{
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+static void pack_slot_sysex(uint32_t slot, uint8_t *pkt)
+{
+    memset(pkt, 0, 122);
+    if (slot >= NPROG) return;
+    pkt[0] = (uint8_t)slot;
+    pkt[1] = psect[slot / PS_N].used[slot % PS_N] ? 1u : 0u;
+    patch_t p;
+    if (slot == trk_prog[sel] && trk_edited[sel]) { p = live_p[sel]; pkt[1] |= 1u; }
+    else prog_get(slot, &p);
+    memcpy(pkt + 2, &p, sizeof(patch_t));
+}
+
+static void app_sysex_wasm(uint32_t cmd, const uint8_t *body, uint32_t len)
+{
+    if (cmd == 0x21u && len >= 82u) {
+        uint32_t s = body[0] == 0x7Fu ? trk_prog[sel] : body[0];
+        if (s >= NPROG) return;
+        patch_t p;
+        memcpy(&p, body + 2, sizeof(patch_t));
+        for (uint32_t i = 0; i < NPARAM; i++)
+            if (p.v[i] > PDEF[i].max) p.v[i] = PDEF[i].max;
+        prog_put(s, &p);
+        st_save(s / PS_N == 0 ? "plob0" : "plob1", &psect[s / PS_N], sizeof psect[0]);
+        if (s == trk_prog[sel] || body[0] == 0x7Fu) {
+            trk_load(sel, s);
+        }
+        daw_update_preset_names();
+    }
 }
 
 /* ---- 3.1 (SDK 9): the Editor as OberVave wants it – the cards in the panel's order, Cutoff x Resonance as a pad,
  * bipolar knobs where the panel shows -/+, the envelopes and the LFO drawn, a word of help where a name is not enough */
 static const char *const ED_TAB[NTRK + 1] = {"A", "B", "C", "D", "FX"};
-static vibe_card ed_cards[NPAGE];
+static vibe_card ed_cards[NPAGE + 2];
 static int ed_track(const char *tab) { return tab && tab[0] >= 'A' && tab[0] < 'A' + NTRK && !tab[1] ? tab[0] - 'A' : (int)sel; }
 static int ed_env_curve(const char *tab, const char *card, float *pts, int max)   /* ADSR as the panel's knobs stand */
 {
+    if (tab && tab[0] == 'R' && (tab[1] == '0' || tab[1] == '1') && tab[2] == ':') {
+        uint32_t slot = 0, k = 3u;
+        while (tab[k] >= '0' && tab[k] <= '9') {
+            slot = slot * 10u + (uint32_t)(tab[k] - '0');
+            k++;
+        }
+        uint8_t pkt[122];
+        pack_slot_sysex(slot, pkt);
+        uint32_t off = (tab[1] == '1') ? 61u : 0u;
+        int cnt = max < 61 ? max : 61;
+        for (int i = 0; i < cnt; i++) {
+            pts[i] = (float)pkt[off + (uint32_t)i] / 255.0f;
+        }
+        return cnt;
+    }
+    if (tab && tab[0] == 'W') {
+        if (tab[1] >= '0' && tab[1] <= '8' && tab[2] == ':') {
+            uint32_t chunk = (uint32_t)(tab[1] - '0');
+            uint32_t base = chunk * 14u;
+            const char *hex = tab + 3;
+            for (uint32_t i = 0; i < 14u && base + i < 128u; i++) {
+                int hi = hex_nibble(hex[i * 2u]);
+                int lo = hex_nibble(hex[i * 2u + 1u]);
+                if (hi < 0 || lo < 0) break;
+                obv_syx_buf[base + i] = (uint8_t)((hi << 4) | lo);
+            }
+            pts[0] = 1.0f;
+            return 1;
+        }
+        if (tab[1] == 'C') {
+            app_sysex_wasm(0x21u, obv_syx_buf, 122u);
+            pts[0] = 1.0f;
+            return 1;
+        }
+    }
     const uint8_t *v = live_p[ed_track(tab)].v;
     int f = card[0] == 'F';
     float a = v[f ? P_FA : P_AA] / 127.0f * 0.3f + 0.02f, d = v[f ? P_FD : P_AD] / 127.0f * 0.3f + 0.02f, s = v[f ? P_FS : P_AS] / 127.0f, r = v[f ? P_FR : P_AR] / 127.0f * 0.3f + 0.02f;
@@ -202,6 +370,10 @@ static void daw_editor(void)
     static const uint8_t ORDER[] = {PG_OSC1, PG_OSC2, PG_OSCMOD, PG_FILTER, PG_FILTER2, PG_FENV, PG_AENV, PG_LFO, PG_LFODEST, PG_LFO2,
                                     PG_VOICE, PG_OUTPUT, PG_ARP, PG_CHORUS, PG_DELAY, PG_REVERB};
     int j, n = 0;
+    ed_cards[n].card = "PRESET";
+    ed_cards[n].width = 4;
+    ed_cards[n].note = "99 factory & user patches";
+    n++;
     for (uint32_t k = 0; k < sizeof ORDER; k++) {
         uint32_t g = ORDER[k];
         ed_cards[n].card = PAGE[g].title;
@@ -215,21 +387,30 @@ static void daw_editor(void)
         if (kind == K_BIP || kind == K_SEMI) vibe_editor_control(j, VIBE_CTL_BIPOLAR);
         else if (kind == K_ONOFF) vibe_editor_control(j, VIBE_CTL_TOGGLE);
         if (p == P_CUTOFF && j + 1 < DAW_N && daw_pi[j + 1] == P_RESO && daw_t[j + 1] == daw_t[j]) { vibe_editor_control(j, VIBE_CTL_XY_X); vibe_editor_control(j + 1, VIBE_CTL_XY_Y); }
+        const char *desc = PDEF[p].name;
         switch (p) {                            /* a word where the name does not say it */
-        case P_VINTAGE: vibe_param_help(j, "How much the voices drift and differ, like an old polysynth's cards"); break;
-        case P_SPREAD: vibe_param_help(j, "Spreads the voices across the stereo field"); break;
-        case P_FMORPH: vibe_param_help(j, "Morphs the filter's character between its types"); break;
-        case P_KEYTRK: vibe_param_help(j, "The filter follows the keyboard: higher notes open it more"); break;
-        case P_XMOD: vibe_param_help(j, "Oscillator 2 modulates oscillator 1's frequency"); break;
-        case P_LFO_DELAY: vibe_param_help(j, "The LFO fades in this long after a key"); break;
-        case P_GLIDE: vibe_param_help(j, "In MONO and UNISON: the time a note slides to the next"); break;
+        case P_VINTAGE: desc = "How much the voices drift and differ, like an old polysynth's cards"; break;
+        case P_SPREAD: desc = "Spreads the voices across the stereo field"; break;
+        case P_FMORPH: desc = "Morphs the filter's character between its types"; break;
+        case P_KEYTRK: desc = "The filter follows the keyboard: higher notes open it more"; break;
+        case P_XMOD: desc = "Oscillator 2 modulates oscillator 1's frequency"; break;
+        case P_LFO_DELAY: desc = "The LFO fades in this long after a key"; break;
+        case P_GLIDE: desc = "In MONO and UNISON: the time a note slides to the next"; break;
         default: break;
         }
+        uint8_t cc = (daw_t[j] == 0) ? cc_of_param(p) : 0;
+        build_cc_help(j, cc, desc);
     }
-    if (MIX_BASE >= 0) for (j = MIX_BASE; j < DAW_N; j++) {   /* (SDK 11: the mixer – pans from the middle, mutes and solos as switches) */
+    if (MIX_BASE >= 0) for (j = MIX_BASE; j < (DAW_PRESET_BASE >= 0 ? DAW_PRESET_BASE : DAW_N); j++) {   /* (SDK 11: the mixer – pans from the middle, mutes and solos as switches) */
         int k = j - MIX_BASE;
         if (k < NTRK * MIX_W && k % MIX_W == 1) vibe_editor_control(j, VIBE_CTL_BIPOLAR);
         else if (k < NTRK * MIX_W && k % MIX_W >= 2) vibe_editor_control(j, VIBE_CTL_TOGGLE);
+    }
+    if (DAW_PRESET_BASE >= 0) {
+        for (uint32_t t = 0; t < NTRK; t++) {
+            vibe_editor_control(DAW_PRESET_BASE + t, VIBE_CTL_MENU);
+            vibe_param_help(DAW_PRESET_BASE + t, "Select from 99 patches (64 factory, 6 VIBE, 29 user)");
+        }
     }
     vibe_editor_accent(0xFF6A1A);               /* (ACCENT, o3_draw.h) */
     for (uint32_t t = 0; t < NTRK; t++) vibe_editor_tab_color(ED_TAB[t], TRK_RGB[t]);
@@ -245,7 +426,15 @@ static void daw_from_host(uint32_t j, float v)
     uint32_t t, p;
     int32_t x;
     if (j >= (uint32_t)DAW_N) return;
-    if (MIX_BASE >= 0 && j >= (uint32_t)MIX_BASE) { mix_from_host((int)j - MIX_BASE, v); return; }
+    if (DAW_PRESET_BASE >= 0 && j >= (uint32_t)DAW_PRESET_BASE && j < (uint32_t)(DAW_PRESET_BASE + NTRK)) {
+        uint32_t trk = j - DAW_PRESET_BASE;
+        uint32_t prg = (uint32_t)(v + 0.5f);
+        if (prg < NPROG && prg != trk_prog[trk]) {
+            trk_load(trk, prg);
+        }
+        return;
+    }
+    if (MIX_BASE >= 0 && j >= (uint32_t)MIX_BASE && (DAW_PRESET_BASE < 0 || j < (uint32_t)DAW_PRESET_BASE)) { mix_from_host((int)j - MIX_BASE, v); return; }
     t = daw_t[j]; p = daw_pi[j];
     x = clampi((int32_t)(v + daw_off(p) + 0.5f), 0, PDEF[p].max);   /* (0..max here: rounds up from .5) */
     if (live_p[t].v[p] == x) return;
@@ -258,7 +447,14 @@ static void daw_sync(void)
 {
     int j;
     for (j = 0; j < DAW_N; j++) {
-        float v = MIX_BASE >= 0 && j >= MIX_BASE ? mix_of(j - MIX_BASE) : daw_of(daw_t[j], daw_pi[j]);
+        float v;
+        if (DAW_PRESET_BASE >= 0 && j >= DAW_PRESET_BASE && j < DAW_PRESET_BASE + (int)NTRK) {
+            v = (float)trk_prog[j - DAW_PRESET_BASE];
+        } else if (MIX_BASE >= 0 && j >= MIX_BASE && (DAW_PRESET_BASE < 0 || j < DAW_PRESET_BASE)) {
+            v = mix_of(j - MIX_BASE);
+        } else {
+            v = daw_of(daw_t[j], daw_pi[j]);
+        }
         if (vibe_param_get(j) != v) vibe_param_set(j, v);
     }
 }

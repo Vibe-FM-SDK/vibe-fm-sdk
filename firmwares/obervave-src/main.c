@@ -126,6 +126,8 @@ static void mo_all_off(uint32_t part)           /* a panic, a track's notes off:
 }
 static uint32_t mo_ch(void) { return set.midi_ch ? set.midi_ch : 1u; }   /* track A's channel as shown (1..16) */
 
+static uint16_t dump_cursor = 0xFFFFu;
+
 void vibe_on_audio(const float *in, float *l, float *r, int n)
 {
     int i = 0;
@@ -133,6 +135,11 @@ void vibe_on_audio(const float *in, float *l, float *r, int n)
     /* (3.1) the clock out: ours, while MIDI OUT is on and no clock comes in (a DAW that leads silences it in the SDK) */
     vibe_clock_out(set.midi_out && !(clk_last && o3_ms - clk_last < 2000u && ctl_ext_quarter));
     daw_sync();                                 /* (SDK 8) what changed in a sound: to the DAW */
+    if (dump_cursor < NPARAM) {
+        uint32_t dp = dump_cursor++;
+        uint8_t cc = cc_of_param(dp);
+        if (cc) vibe_midi_send_at((uint8_t)(0xB0u | (set.midi_ch ? (set.midi_ch - 1u) & 15u : 0u)), cc, (uint8_t)((live_p[sel].v[dp] * 127u + PDEF[dp].max / 2) / PDEF[dp].max), 0);
+    }
     daw_follow((uint32_t)(eng_end - eng_pos), (uint32_t)n);   /* (SDK 8) the DAW starts or jumps: the steps where it is */
     while (i < n && eng_pos < eng_end) { l[i] = eng_l[eng_pos]; r[i] = eng_r[eng_pos]; eng_pos++; i++; }   /* (what a queue still holds) */
     while (n - i >= 16) {                       /* the direct way */
@@ -151,15 +158,15 @@ void vibe_on_audio(const float *in, float *l, float *r, int n)
     master(l, r, n);
 }
 
-static uint8_t cc_map[128];                     /* MIDI CC -> parameter + 1 (2.0's: fixed ones, the rest from CC 20 up) */
-static void cc_map_init(void)
+uint8_t cc_map[128];                     /* MIDI CC -> parameter + 1 (2.0's: fixed ones, the rest from CC 20 up) */
+void cc_map_init(void)
 {
     uint32_t i, next = 20;
     for (i = 0; i < NPARAM; i++) if (PDEF[i].cc) cc_map[PDEF[i].cc] = (uint8_t)(i + 1u);
     for (i = 0; i < NPARAM; i++) {
         if (PDEF[i].cc) continue;
-        while (next < 120u && (cc_map[next] || next == 64u)) next++;
-        if (next < 120u) cc_map[next++] = (uint8_t)(i + 1u);
+        while (next < 119u && (cc_map[next] || next == 64u)) next++;
+        if (next < 119u) cc_map[next++] = (uint8_t)(i + 1u);
     }
 }
 
@@ -352,6 +359,16 @@ static void midi(uint32_t st, uint32_t d1, uint32_t d2)
     else if (kind == 0xB0u) {
         if (d1 == 7u) ctl_cc7 = d2;
         else if (d1 == 64u) ctl_sustain = d2 >= 64u;
+        else if (d1 == 119u) {
+            if (d2 == 127u) {
+                prog_put(trk_prog[sel], &live_p[sel]);
+                st_save(trk_prog[sel] / PS_N == 0 ? "plob0" : "plob1", &psect[trk_prog[sel] / PS_N], sizeof psect[0]);
+                trk_edited[sel] = 0;
+                daw_update_preset_names();
+            } else {
+                dump_cursor = 0;
+            }
+        }
         else if (d1 == 120u || d1 == 123u) ctl_panic = 1;
         else if (cc_map[d1]) { uint32_t p = cc_map[d1] - 1u; set_param(p, PDEF[p].max == 127 ? (int32_t)d2 : ((int32_t)d2 * PDEF[p].max + 63) / 127); auto_rec(p); }
     }

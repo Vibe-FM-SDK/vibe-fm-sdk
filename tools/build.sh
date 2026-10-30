@@ -10,10 +10,20 @@
 set -e
 cd "$(dirname "$0")/.."
 DIR="${1:?usage: sh tools/build.sh <firmware folder>}"; DIR="${DIR%/}"
-[ -f "$DIR/firmware.json" ] || { echo "$DIR/firmware.json missing – copy one from examples/hello"; exit 1; }
 ID=$(basename "$DIR")
+if [ -f "$DIR/build.sh" ]; then
+  exec sh "$DIR/build.sh"
+elif [ -f "firmware/$ID/build.sh" ]; then
+  exec sh "firmware/$ID/build.sh"
+fi
+[ -f "$DIR/firmware.json" ] || { echo "$DIR/firmware.json missing – copy one from examples/hello"; exit 1; }
 case "$ID" in *[!A-Za-z0-9._-]*) echo "the folder's name is the firmware's id: letters, digits, - _ . only"; exit 1 ;; esac
-ZIG="${ZIG:-zig}"
+if [ -z "$ZIG" ] || [ ! -x "$ZIG" ]; then
+  if command -v zig >/dev/null 2>&1; then ZIG=zig
+  elif [ -x "$HOME/.local/lib/python3.10/site-packages/ziglang/zig" ]; then ZIG="$HOME/.local/lib/python3.10/site-packages/ziglang/zig"
+  else ZIG="$HOME/.local/opt/zig-linux-x86_64-0.13.0/zig"
+  fi
+fi
 command -v "$ZIG" >/dev/null 2>&1 || [ -x "$ZIG" ] || { echo "zig not found – install Zig 0.13.0 (README) or set ZIG=/path/to/zig"; exit 1; }
 
 # one file for every VIBE FM host (the plugin, the browser, the VIBE): shared memory, built with atomics (VIBE FM Protokoll 6)

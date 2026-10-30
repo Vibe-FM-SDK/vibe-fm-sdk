@@ -271,49 +271,62 @@ html.plugin-wait #power, html.plugin-wait .topbar .tools { display: none !import
 
 /* ---------- the plugin's Editor view (editor.js): every parameter at once ---------- */
 body.editing .stage, body.editing #status, body.editing .cheat, body.editing #cheat { display: none !important; }
-.editor { position: fixed; inset: 58px 0 0 0; display: grid; grid-template-columns: 300px 1fr; gap: 18px; padding: 8px 18px 18px; overflow: hidden; }
+.editor { position: fixed; inset: 50px 0 0 0; display: grid; grid-template-columns: 236px 1fr; gap: 8px; padding: 5px 10px 8px; overflow: hidden; }
 .editor[hidden] { display: none; }
-.ed-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.ed-disp { width: 300px; height: 200px; border-radius: 10px; border: 1px solid var(--line); image-rendering: auto; background: #000; }
-.ed-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
-.ed-tab { flex: 1 0 44px; padding: 9px 0; border-radius: 8px; border: 1px solid var(--line); background: #17191d; color: var(--fg); font: 800 15px var(--sans); cursor: pointer; }
+.ed-side { display: flex; flex-direction: column; gap: 5px; min-height: 0; overflow-y: auto; }
+.ed-disp { width: 236px; height: 157px; border-radius: 7px; border: 1px solid var(--line); image-rendering: auto; background: #000; flex-shrink: 0; }
+.ed-hw { display: flex; flex-direction: column; gap: 3px; background: #14161a; border: 1px solid var(--line); border-radius: 7px; padding: 5px; }
+.ed-hw-row { display: grid; grid-template-columns: repeat(6, 1fr); gap: 3px; }
+.ed-hw-row.enc { grid-template-columns: repeat(4, 1fr) auto auto; }
+.ed-hw-row.syx { grid-template-columns: repeat(5, 1fr); }
+.ed-hw-btn, .ed-hw-enc { height: 23px; padding: 0 2px; border-radius: 4px; border: 1px solid var(--line); background: #1c1f25; color: var(--fg); font: 800 9.5px var(--mono); display: flex; align-items: center; justify-content: center; cursor: pointer; user-select: none; touch-action: none; }
+.ed-hw-row.syx .ed-hw-btn { background: #192422; border-color: #264840; color: #5ef2c8; font-size: 8.5px; }
+.ed-hw-enc { height: 25px; background: #20242c; border-color: #323844; color: #7ef7d4; cursor: ns-resize; font-size: 9px; }
+.ed-hw-btn:hover, .ed-hw-enc:hover { border-color: var(--ed-acc, #FF60BE); background: #262b33; }
+.ed-hw-btn:active, .ed-hw-btn.on { background: var(--ed-acc, #FF60BE); border-color: var(--ed-acc, #FF60BE); color: #111; }
+.ed-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+.ed-tab { flex: 1 0 38px; padding: 5px 0; border-radius: 5px; border: 1px solid var(--line); background: #17191d; color: var(--fg); font: 800 12px var(--sans); cursor: pointer; }
 .ed-tab.on { background: var(--ed-acc, #FF60BE); border-color: var(--ed-acc, #FF60BE); color: #111; }
-.ed-note { margin: 0; font: 400 12px/1.45 var(--sans); color: var(--muted); }
-.ed-main { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; align-content: start; padding-right: 4px; }
-.ed-card { background: #15171b; border: 1px solid var(--line); border-top: 3px solid var(--ed-acc, #FF60BE); border-radius: 12px; padding: 10px 12px 12px; }
-.ed-head { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 14px; padding: 2px 2px 4px; border-bottom: 2px solid var(--ed-acc, #FF60BE); }
-.ed-head h2 { margin: 0; font: 900 28px var(--sans); letter-spacing: .04em; color: var(--ed-acc, #FF60BE); }
-.ed-head span { font: 600 12px var(--mono); color: var(--muted); }
-.ed-card h3 { margin: 0 0 8px; font: 800 12px var(--mono); letter-spacing: .08em; color: var(--ed-acc, #FF60BE); }
-.ed-ctrls { display: flex; flex-wrap: wrap; gap: 6px 4px; }
-.ed-ctl { width: 68px; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
-.ed-ctl:has(.ed-seg), .ed-ctl:has(select) { width: 100%; align-items: stretch; text-align: left; }
-.ed-knob { width: 52px; height: 52px; cursor: ns-resize; touch-action: none; }
+.ed-note { margin: 0; font: 400 10px/1.3 var(--sans); color: var(--muted); }
+.ed-main { overflow-y: auto; display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 6px; align-content: start; padding-right: 4px; }
+.ed-card { background: #15171b; border: 1px solid var(--line); border-top: 2px solid var(--ed-acc, #FF60BE); border-radius: 7px; padding: 5px 7px 6px; }
+.ed-head { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 8px; padding: 0 2px 2px; border-bottom: 1.5px solid var(--ed-acc, #FF60BE); }
+.ed-head h2 { margin: 0; font: 900 18px var(--sans); letter-spacing: .03em; color: var(--ed-acc, #FF60BE); }
+.ed-head span { font: 600 10.5px var(--mono); color: var(--muted); }
+.ed-card h3 { margin: 0 0 3px; font: 800 10.5px var(--mono); letter-spacing: .06em; color: var(--ed-acc, #FF60BE); }
+.ed-ctrls { display: flex; flex-wrap: wrap; gap: 3px 2px; }
+.ed-ctl { width: 48px; display: flex; flex-direction: column; align-items: center; gap: 1px; text-align: center; }
+.ed-ctl:has(.ed-seg), .ed-ctl:has(select), .ed-ctl:has(.ed-nav-row) { width: 100%; align-items: stretch; text-align: left; }
+.ed-knob { width: 36px; height: 36px; cursor: ns-resize; touch-action: none; }
 .ed-knob .trk { fill: none; stroke: #2a2d33; stroke-width: 6; stroke-linecap: round; }
 .ed-knob .val { fill: none; stroke: #40E0D0; stroke-width: 6; stroke-linecap: round; }
 .ed-knob .ptr { stroke: #f2f2f2; stroke-width: 3; stroke-linecap: round; }
 .ed-knob:hover .val { stroke: var(--ed-acc, #FF60BE); }
-.ed-lab { font: 600 10px var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: .04em; line-height: 1.15; }
-.ed-val { font: 700 12px var(--mono); color: var(--fg); }
-.ed-seg { display: flex; gap: 3px; margin-top: 3px; }
-.ed-seg button { flex: 1; padding: 5px 2px; border-radius: 6px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 700 10px var(--mono); cursor: pointer; }
+.ed-lab { font: 600 8px var(--sans); color: var(--muted); text-transform: uppercase; letter-spacing: .02em; line-height: 1.05; }
+.ed-val { font: 700 10px var(--mono); color: var(--fg); }
+.ed-seg { display: flex; gap: 2px; margin-top: 1px; }
+.ed-seg button { flex: 1; padding: 3px 2px; border-radius: 4px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 700 9px var(--mono); cursor: pointer; }
 .ed-seg button.on { background: #40E0D0; border-color: #40E0D0; color: #0d1012; }
-.ed-ctl select { margin-top: 3px; padding: 5px; border-radius: 6px; background: #1c1f24; color: var(--fg); border: 1px solid var(--line); font: 700 11px var(--mono); }
+.ed-nav-row { display: flex; align-items: center; gap: 3px; width: 100%; margin-top: 1px; }
+.ed-nav-btn { flex: 0 0 22px; height: 24px; padding: 0; display: flex; align-items: center; justify-content: center; border-radius: 4px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 700 9px var(--sans); cursor: pointer; }
+.ed-nav-btn:hover { background: #262a31; border-color: var(--ed-acc, #FF60BE); }
+.ed-nav-btn:active { background: var(--ed-acc, #FF60BE); color: #111; }
+.ed-sel, .ed-ctl select { flex: 1; min-width: 0; height: 24px; margin-top: 0; padding: 0 4px; border-radius: 4px; background: #1c1f24; color: var(--fg); border: 1px solid var(--line); font: 700 10px var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* SDK 9 (28.10.): the Editor as the firmware describes it – a 12-column grid, notes, curves, sliders, toggles, XY pads */
 .ed-main.ed-grid12 { grid-template-columns: repeat(12, minmax(0, 1fr)); }
-.ed-cnote { margin: -4px 0 8px; font: 400 11px/1.4 var(--sans); color: var(--muted); }
-.ed-curve { width: 100%; height: 44px; display: block; border-radius: 6px; margin: 0 0 8px; background: #1c1f24; }
+.ed-cnote { margin: -2px 0 4px; font: 400 9.5px/1.25 var(--sans); color: var(--muted); }
+.ed-curve { width: 100%; height: 34px; display: block; border-radius: 4px; margin: 0 0 4px; background: #1c1f24; }
 .ed-ctl-sl { width: 100%; align-items: stretch; text-align: left; }
 .ed-slrow { display: flex; justify-content: space-between; align-items: baseline; }
-.ed-slider { width: 100%; margin: 4px 0 2px; accent-color: var(--ed-acc, #FF60BE); cursor: ew-resize; }
-.ed-tog { width: 100%; padding: 7px 4px; border-radius: 6px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 700 10px var(--mono); cursor: pointer; text-transform: uppercase; }
+.ed-slider { width: 100%; margin: 1px 0; accent-color: var(--ed-acc, #FF60BE); cursor: ew-resize; }
+.ed-tog { width: 100%; padding: 4px 3px; border-radius: 4px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 700 9px var(--mono); cursor: pointer; text-transform: uppercase; }
 .ed-tog.on { background: var(--ed-acc, #FF60BE); border-color: var(--ed-acc, #FF60BE); color: #0d1012; }
 .ed-ctl:has(.ed-tog) { width: 100%; align-items: stretch; }
 .ed-ctl-xy { width: 100%; align-items: stretch; }
-.ed-xy { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 150px; border-radius: 8px; background: #1c1f24 radial-gradient(circle at center, #262a31 0, #1c1f24 70%); border: 1px solid var(--line); cursor: crosshair; touch-action: none; overflow: hidden; }
+.ed-xy { position: relative; width: 100%; aspect-ratio: 16 / 9; max-height: 82px; border-radius: 6px; background: #1c1f24 radial-gradient(circle at center, #262a31 0, #1c1f24 70%); border: 1px solid var(--line); cursor: crosshair; touch-action: none; overflow: hidden; }
 .ed-xy::before, .ed-xy::after { content: ''; position: absolute; background: #2a2d33; }
 .ed-xy::before { left: 50%; top: 0; width: 1px; height: 100%; } .ed-xy::after { top: 50%; left: 0; height: 1px; width: 100%; }
-.ed-dot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--ed-acc, #FF60BE); box-shadow: 0 0 0 3px rgba(255,255,255,.12); pointer-events: none; }
+.ed-dot { position: absolute; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--ed-acc, #FF60BE); box-shadow: 0 0 0 2px rgba(255,255,255,.12); pointer-events: none; }
 @media (max-width: 760px) { .editor { grid-template-columns: 1fr; overflow-y: auto; } .ed-disp { width: 100%; height: auto; aspect-ratio: 3 / 2; } }
 
 /* the View dropdown (27.10.): Editor · Full · Rack · Display */
