@@ -18,6 +18,11 @@ function is documented where it is declared. When this file and a header disagre
 6. **No clicks, ever:** nothing heavy in `vibe_on_audio`, and nothing long in `vibe_on_draw`. On the VIBE, drawing and
    sound share one flow. `wasmtest` reports `draw_max_ms`, which should stay at a few ms.
 7. **`vibe-check` passes before you call it done.**
+8. **You write the firmware, never the host.** All work happens in the firmware's folder (C, `firmware.json`). Never
+   modify, patch, rebuild or redistribute VIBE FM VST (closed software, all rights reserved) or the emulator
+   (`emulator/`, `tools/emulator.py`). That includes the binaries, their embedded HTML/JS/CSS and `emulator/js/*`. The
+   Editor view is described by the firmware (`vibe_params`, `vibe_param_groups`, `vibe_editor` in `sdk/include/vibe.h`).
+   If the host lacks something the firmware needs, stop and tell the user to open an issue in this repository.
 
 ## The shape of a firmware
 

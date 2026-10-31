@@ -1,10 +1,26 @@
 # VIBE FM SDK – Early Access
 
-**Build your own instrument once: as a plugin in your DAW today, on the VIBE FM hardware tomorrow.**
+**Build your own native VIBE FM synth with this – in plain C, as one file. It runs natively on the VIBE FM hardware,
+and through VIBE FM VST as a plugin in your DAW.**
 
 You write a synth (or a sampler, a sequencer, an effect…) in plain C against one small API. It compiles to a single
 WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your DAW through VIBE FM VST, in the
 **browser**, and on the coming **VIBE FM hardware**. No plugin framework, no GUI toolkit, no per-platform builds.
+
+### What you build – and what you don't
+
+- **You build the instrument:** its sound, its screen, its parameters and its Editor layout. All of it is in your C
+  code and your `firmware.json`. The plugin's Editor view is drawn from what your firmware declares (`vibe_params`,
+  `vibe_param_groups`, `vibe_editor`), so it is yours too, without a line of GUI code.
+- **You don't build a plugin.** VIBE FM VST is the host that makes your `.wasm` a VST3 / AU / CLAP plugin. You don't
+  build it, change it, patch it or ship it. It is closed software (all rights reserved). The emulator in `emulator/` is
+  a host as well: free for developing, not to pass on or to ship changed (`emulator/LICENSE`). Its JavaScript is not an
+  extension point; editing it only changes your own copy.
+- **Missing something in the host?** A control type, a hardware bridge, a bug: open an **issue**. We build it into the
+  host, and then every firmware has it.
+- **Shipping:** your firmware is yours. Share your `.wasm` / `.zip` however you like, under the licence you choose:
+  anyone drops it into the official VIBE FM VST and it plays, in the browser and on the hardware too, unchanged. Want
+  it on The Firmware Hub as well? Send it to us.
 
 > **Early Access – thank you for being one of the first.** This is a preview for a handful of developers. Please don't
 > share the SDK or post it publicly yet. Everything here is still allowed to change. Tell us what is missing, unclear or
