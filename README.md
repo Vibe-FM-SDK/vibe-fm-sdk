@@ -54,6 +54,9 @@ Changed the code? Build again and drop the new zip – it replaces the old one.
 
 ## Your own firmware
 
+> **Coming from the M-VAVE FM-1?** Your FM-1 firmware can become a native VIBE FM plugin: your engine stays, the FM-1
+> layer goes. **[FROM-FM1.md](FROM-FM1.md)** walks you through it, step by step, the way OberVave 2 became OberVave 3.
+
 ```sh
 cp -r examples/hello my-synth          # the folder's name is your firmware's id (letters, digits, - _ .)
 mv my-synth/hello.c my-synth/my-synth.c

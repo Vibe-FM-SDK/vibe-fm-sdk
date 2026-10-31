@@ -175,6 +175,11 @@ node tools/wasmtest.mjs build/my-synth.wasm script.json out/   # scripted: audio
 Then drop `build/my-synth.zip` onto the VIBE FM VST window in a DAW. The folder name is the firmware's id (`a-z 0-9 - _ .`);
 `firmware.json` holds `name`, `version`, `author`, `description`, `license`.
 
+## Porting an FM-1 firmware
+
+If the user brings an M-VAVE FM-1 firmware: follow **FROM-FM1.md** – keep the sound engine, replace the main loop, ISRs
+and HAL with the four callbacks, compute rate tables from `sample_rate`, redraw on 480 x 320 in the house layout.
+
 ## Common mistakes
 
 - Using `sinf` / `powf` / `rand()` → use `vd_sin` (turns, not radians!) / `vd_pow` / `vd_rand`.
