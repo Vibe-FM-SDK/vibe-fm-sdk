@@ -13,6 +13,8 @@
 //         firmware reads (folders relative to the script; "@out" = <outdir>/media-<key>), "media_pending": n – each new
 //         thing is answered "not yet" n times first (default 1); a step's "media_remove": "usb-1" pulls a source,
 //         "media_add": {"usb-1": {...}} plugs one in. VIBE_EV_MEDIA goes to the firmware before the next block.
+// "jobs_reverse": true – Protokoll 8: the firmware's worker jobs in reverse order (2-1-0); out_hash must match the run
+//         without it – a job that leans on another's memory gives a different hash (what parallel cores would hear)
 // output: audio.wav, the shots as PNG, cue.wav (with "cue"), and midi.json (SDK 9: what the firmware sent – [{"t": seconds, "bytes": [..]}]) when it sent any
 import fs from 'fs';
 import zlib from 'zlib';
@@ -44,6 +46,7 @@ inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(wasmFile)
   } } });
 const e = inst.exports;
 e.vibe_wasm_init(sr);
+if (script.jobs_reverse && e.vibe_wasm_jobs_reverse) e.vibe_wasm_jobs_reverse(1);   // (Protokoll 8: the jobs 2-1-0)
 const total = Math.ceil(script.seconds * sr / block);
 const L = new Float32Array(total * block), R = new Float32Array(total * block);
 const outT = e.vibe_wasm_outputs ? e.vibe_wasm_outputs() : 0, CL = new Float32Array(total * block), CR = new Float32Array(total * block); let cueBlocks = 0;
@@ -109,10 +112,12 @@ for (let b = 0; b < total; b++) {
 }
 let peak = 0, nan = 0, sum = 0;
 for (let i = 0; i < L.length; i++) { if (!Number.isFinite(L[i]) || !Number.isFinite(R[i])) nan++; peak = Math.max(peak, Math.abs(L[i]), Math.abs(R[i])); sum += L[i] * L[i]; }
+let hash = 2166136261; { const bl = new Uint32Array(L.buffer), br = new Uint32Array(R.buffer); for (let i = 0; i < bl.length; i++) { hash = Math.imul(hash ^ bl[i], 16777619) >>> 0; hash = Math.imul(hash ^ br[i], 16777619) >>> 0; } }   // (FNV over the output's bits: two runs, the same sound?)
 wav(`${outDir}/audio.wav`);
 if (cueBlocks) { const sl = L.slice(), sr2 = R.slice(); L.set(CL); R.set(CR); wav(`${outDir}/cue.wav`); L.set(sl); R.set(sr2); }
 if (midiOut.length) fs.writeFileSync(`${outDir}/midi.json`, JSON.stringify(midiOut));
-console.log(JSON.stringify({ peak: +peak.toFixed(3), rms: +Math.sqrt(sum / L.length).toFixed(4), nan,
+console.log(JSON.stringify({ peak: +peak.toFixed(3), rms: +Math.sqrt(sum / L.length).toFixed(4), nan, out_hash: hash.toString(16).padStart(8, '0'),
+  ...(e.vibe_wasm_workers && e.vibe_wasm_workers() ? { jobs: e.vibe_wasm_workers(), jobs_order: script.jobs_reverse ? '2-1-0' : '0-1-2' } : {}),
   cpu_audio_percent: +(audioMs / (script.seconds * 1000) * 100).toFixed(1), draw_ms: +(drawMs / draws).toFixed(2), draw_max_ms: +drawMax.toFixed(2), midi_out: midiOut.length, cue_blocks: cueBlocks,
   ...(media.count.sources ? { media: { ...media.count, in_audio: mediaInAudio } } : {}), logs, requests }));
 

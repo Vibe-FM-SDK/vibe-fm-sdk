@@ -212,7 +212,9 @@ can run on the others – `VIBE_JOBS(3)`, `vibe_on_job(k, frames)`, and in `vibe
 `vibe_jobs_wait()` (`sdk/include/vibe.h`). Where a host has no workers – VIBE FM VST, the emulator, a one-core computer –
 the jobs simply run one after the other, bit for bit the same: nothing to change, nothing to rebuild for anyone else.
 A job calls nothing of the SDK and touches only its own buffers; `vibe-check` runs the jobs in two orders and must hear
-the same sound.
+the same sound. Jobs that only compute in a certain state (tracks set to a synth): `vibe-check --store DIR` (your
+firmware's saved files) or `--script FILE` (a `wasmtest` script) – and `wasmtest` with `"jobs_reverse": true` must
+print the same `out_hash` as without.
 
 ## Updates
 

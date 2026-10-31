@@ -10,8 +10,8 @@ import { MediaHost } from './media-host.mjs';
 
 const args = process.argv.slice(2);
 const opt = (n, d) => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : d; };
-const file = args.find((a, i) => !a.startsWith('--') && !['--manifest', '--seconds', '--files'].includes(args[i - 1]));
-if (!file) { console.error('usage: node tools/vibe-check.mjs <firmware.wasm> [--manifest firmware.json] [--seconds 60] [--json]'); process.exit(2); }
+const file = args.find((a, i) => !a.startsWith('--') && !['--manifest', '--seconds', '--files', '--store', '--script'].includes(args[i - 1]));
+if (!file) { console.error('usage: node tools/vibe-check.mjs <firmware.wasm> [--manifest firmware.json] [--seconds 60] [--store DIR] [--script FILE] [--json]'); process.exit(2); }
 const SECONDS = +opt('--seconds', 60), JSON_OUT = args.includes('--json'), SR = 48000, BLOCK = 128;
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..');
 const id = path.basename(file).replace(/\.wasm$/, '');
@@ -240,7 +240,8 @@ function fuzzEvent(x0, held) {
 
 // ---------------------------------------------------------------- 2. robustness + 3. realtime -------------------------
 const files = new Map();   // --files dir: the firmware's storage starts with these (music for PLAYER, samples …)
-if (opt('--files')) for (const n of fs.readdirSync(opt('--files'), { recursive: true })) { const k = n.split(path.sep).join('/'), f = path.join(opt('--files'), n); if (fs.statSync(f).isFile() && NAME.test(k)) files.set(k, fs.readFileSync(f)); }
+const STORE = opt('--files') || opt('--store');   // (--store DIR: a saved state – the jobs check plays with it too)
+if (STORE) for (const n of fs.readdirSync(STORE, { recursive: true })) { const k = n.split(path.sep).join('/'), f = path.join(STORE, n); if (fs.statSync(f).isFile() && NAME.test(k)) files.set(k, fs.readFileSync(f)); }
 const h1 = host(files), r1 = run(h1, SECONDS, true);
 check('Version', r1.version >= 1 && r1.version <= 8, `Protokoll ${r1.version}` + (manifest && manifest.protocol && manifest.protocol !== r1.version ? ` – manifest says ${manifest.protocol}` : ''));
 if (shared && r1.version < 6) check('Format', false, 'shared memory requires Protokoll 6 or later');
@@ -260,15 +261,18 @@ if (r1.trap && process.env.VIBE_STACK) console.error(r1.stack);
 
 // Protokoll 8: worker jobs – the same, bit for bit, in any order (a job that leans on another's memory sounds different
 // in parallel, or crashes), no host call from a job, the time each job takes
+// --script FILE: a wasmtest script ("steps": [{"t": s, "ev": [type, id, down, value, midi]}], "seconds") plays instead of the chords
+const SCRIPT_J = opt('--script') ? JSON.parse(fs.readFileSync(opt('--script'), 'utf8')) : null, SCRIPT = SCRIPT_J && (SCRIPT_J.steps || []).slice().sort((a, b) => a.t - b.t), SCRIPT_S = SCRIPT_J && SCRIPT_J.seconds;
 if (exports.get('vibe_wasm_workers') === 'function' && exports.get('vibe_wasm_jobs_reverse') === 'function') {
   const play = (rev, timeJobs) => {
-    const hh = host(new Map()), x = hh.inst.exports; let out = [], ms = [[], [], []];
+    const hh = host(new Map(files)), x = hh.inst.exports; let out = [], ms = [[], [], []];   // (with --store: the saved state – tracks that use the jobs)
     try {
       x.vibe_wasm_init(SR); x.vibe_wasm_jobs_reverse(rev);
-      const io = x.vibe_wasm_io(), nj = x.vibe_wasm_workers();
-      for (let b = 0; b < Math.ceil(4 * SR / BLOCK); b++) {
-        if (b % 40 === 2) for (let v = 0; v < 4; v++) { x.vibe_wasm_event(5, 0, 0, 0, 0x90 | v | (48 + v * 7 + (b / 40 | 0) % 5) << 8 | 100 << 16); x.vibe_wasm_event(2, (v * 5 + b / 40) % 25 | 0, 1, 0.8, 0); }
-        if (b % 40 === 30) for (let v = 0; v < 4; v++) { x.vibe_wasm_event(5, 0, 0, 0, 0x80 | v | (48 + v * 7 + (b / 40 | 0) % 5) << 8); x.vibe_wasm_event(2, (v * 5 + b / 40) % 25 | 0, 0, 0, 0); }
+      const io = x.vibe_wasm_io(), nj = x.vibe_wasm_workers(); let si = 0;
+      for (let b = 0; b < Math.ceil((SCRIPT_S || 4) * SR / BLOCK); b++) {
+        if (SCRIPT) { while (si < SCRIPT.length && SCRIPT[si].t * SR <= b * BLOCK) { const ev = SCRIPT[si++].ev; if (ev) x.vibe_wasm_event(ev[0], ev[1], ev[2] || 0, ev[3] || 0, ev[4] || 0); } }
+        else if (b % 40 === 2) for (let v = 0; v < 4; v++) { x.vibe_wasm_event(5, 0, 0, 0, 0x90 | v | (48 + v * 7 + (b / 40 | 0) % 5) << 8 | 100 << 16); x.vibe_wasm_event(2, (v * 5 + b / 40) % 25 | 0, 1, 0.8, 0); }
+        if (!SCRIPT && b % 40 === 30) for (let v = 0; v < 4; v++) { x.vibe_wasm_event(5, 0, 0, 0, 0x80 | v | (48 + v * 7 + (b / 40 | 0) % 5) << 8); x.vibe_wasm_event(2, (v * 5 + b / 40) % 25 | 0, 0, 0, 0); }
         hh.inAudio = true; x.vibe_wasm_audio(BLOCK, 0); hh.inAudio = false;
         const f = new Float32Array(x.memory.buffer, io, 768); out.push(Float32Array.from(f.subarray(256, 256 + BLOCK)), Float32Array.from(f.subarray(512, 512 + BLOCK)));
         if (timeJobs) for (let k = 0; k < nj; k++) { const t0 = performance.now(); x.vibe_wasm_job(k, BLOCK); ms[k].push(performance.now() - t0); }
