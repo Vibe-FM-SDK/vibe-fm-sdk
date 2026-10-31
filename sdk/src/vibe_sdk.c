@@ -161,6 +161,17 @@ int vibe_media_create(const char *name, char *path_out, int max)
 }
 int vibe_media_append(int h, const void *data, int bytes) { return h > 0 && data && bytes >= 0 ? vibe_host_store(11, 0, h, (void *)data, bytes) : -1; }
 int vibe_media_close(int h, int keep) { return h > 0 ? vibe_host_store(12, 0, h, 0, keep ? 1 : 0) : -1; }
+int vibe_media_dropped(char *path, int max, int *pad, int *x, int *y)
+{
+  static unsigned char b[12 + VIBE_MEDIA_PATH];    /* (i32 pad, x, y, then the path – the host checked it) */
+  int r = vibe_host_store(13, "", 0, b, sizeof b), v[3] = { -1, -1, -1 };
+  if (r == 1) {
+    for (int i = 0; i < 3; i++) v[i] = (int)((unsigned)b[i * 4] | (unsigned)b[i * 4 + 1] << 8 | (unsigned)b[i * 4 + 2] << 16 | (unsigned)b[i * 4 + 3] << 24);
+    int k = 0; if (path && max > 0) { while (k < max - 1 && b[12 + k]) { path[k] = (char)b[12 + k]; k++; } path[k] = 0; }
+  } else if (path && max > 0) path[0] = 0;
+  if (pad) *pad = v[0]; if (x) *x = v[1]; if (y) *y = v[2];
+  return r == 1 ? 1 : r == 0 ? 0 : -1;
+}
 
 /* ================================================================ 2. drawing ==================================== */
 static uint16_t *FB;
@@ -288,6 +299,9 @@ uint32_t vg_mix(uint32_t a, uint32_t b, float t) {
 #define VF_MAX 64
 typedef struct { int id, x, y, w, h; float *v, lo, hi, step; } vf_item;
 static vf_item VF[VF_MAX], VFN[VF_MAX]; static int vf_n, vf_nn, vf_cur = -1, vf_edit, vf_off, vf_md, vf_on; static float vf_acc;
+static float sdk_sr;                             /* (defined below, SDK 9) */
+static int vf_sw, vf_shift; static uint64_t vf_t;     /* vf_shift_walk: on · SHIFT held · the last touch (frames) */
+void vf_shift_walk(int on) { vf_sw = on; }
 static int vf_index(int id);
 void vf_mode(int m) { vf_md = m; vf_on = 0; vf_edit = 0; }
 int vf_active(void) { return vf_md == VF_ALWAYS || vf_on; }
@@ -310,6 +324,7 @@ void vf_end(uint32_t c)
 {
   for (int i = 0; i < vf_nn; i++) VF[i] = VFN[i];
   vf_n = vf_nn;
+  if (vf_sw && vf_on && !vf_edit && !vf_shift && vibe_frames() - vf_t > (uint64_t)(sdk_sr * 6.0f)) vf_on = 0;   /* (SHIFT walk: 6 s untouched = off) */
   if (vf_off || vf_cur < 0 || !vf_active()) return;
   int i = vf_index(vf_cur); if (i < 0) { vf_edit = 0; return; }   /* (its control is not on this page: no frame) */
   const vf_item *t = &VF[i];
@@ -323,6 +338,7 @@ void vf_set_focus(int id) { vf_cur = id; vf_edit = 0; vf_acc = 0; }
 int vf_event(const vibe_event *e, int *id)
 {
   if (vf_off || !vf_n || !vf_active()) return VF_NO;
+  vf_t = vibe_frames();
   int i = vf_index(vf_cur);
   if (e->type == VIBE_EV_ENCODER && e->id == VE_DATA) {
     if (vf_edit && i >= 0 && VF[i].id >= VF_ENC && VF[i].id < VF_KEY) {   /* editing a stand-in: the encoder turns */
@@ -645,7 +661,7 @@ VIBE_EXPORT(vibe_wasm_editor) const void *vibe_wasm_editor(void) { return ed.ver
 VIBE_EXPORT(vibe_wasm_editor_curve_card) const char *vibe_wasm_editor_curve_card(int i) { return i >= 0 && i < ed.ncurves ? ed_curve[i].card : 0; }
 VIBE_EXPORT(vibe_wasm_editor_curve) int vibe_wasm_editor_curve(int i, const char *tab)   /* fills vibe_wasm_editor_points(); returns their count */
 {
-  if (i < 0 || i >= ed.ncurves) return 0;
+  if (i < 0 || i >= ed.ncurves || !ed_curve[i].fn) return 0;
   int n = ed_curve[i].fn(tab ? tab : "", ed_curve[i].card, ed_pts, 64);
   if (n < 2) return 0; if (n > 64) n = 64;
   for (int k = 0; k < n; k++) ed_pts[k] = ed_pts[k] < 0.0f ? 0.0f : ed_pts[k] > 1.0f ? 1.0f : ed_pts[k];
@@ -654,6 +670,70 @@ VIBE_EXPORT(vibe_wasm_editor_curve) int vibe_wasm_editor_curve(int i, const char
 VIBE_EXPORT(vibe_wasm_editor_points) const float *vibe_wasm_editor_points(void) { return ed_pts; }
 static char ed_tabbuf[32];                        /* (the host writes the tab's name here and passes its address to _curve) */
 VIBE_EXPORT(vibe_wasm_editor_tabbuf) char *vibe_wasm_editor_tabbuf(void) { return ed_tabbuf; }
+
+/* ---- SDK 15: the Editor talks back (Protokoll 9.3) – a curve drawn, a button clicked; SysEx in (Protokoll 7.5) -------
+ * The host calls these in the firmware's flow (where it calls vibe_wasm_event), the tab's name in vibe_wasm_editor_tabbuf. */
+static vibe_curve_draw_fn ed_draw[16];
+static struct { const char *card, *label; int32_t id; } ed_btn[16];   /* 12 bytes each: card ptr, label ptr, id */
+static int32_t ed_nbtn;
+static char ed_evtab[32];
+void vibe_editor_curve_draw(const char *card, vibe_curve_draw_fn fn)
+{
+  if (!card || !fn) return;
+  for (int i = 0; i < ed.ncurves; i++) {
+    const char *a = ed_curve[i].card, *b = card; while (*a && *a == *b) a++, b++;
+    if (*a == *b) { ed_draw[i] = fn; return; }
+  }
+}
+void vibe_editor_button(const char *card, const char *label, int id)
+{
+  if (card && label && ed_nbtn < 16) { ed_btn[ed_nbtn].card = card; ed_btn[ed_nbtn].label = label; ed_btn[ed_nbtn].id = id; ed_nbtn++; ed.version = 1; }
+}
+const char *vibe_editor_event_tab(void) { return ed_evtab; }
+VIBE_EXPORT(vibe_wasm_editor_curve_drawable) int vibe_wasm_editor_curve_drawable(int i) { return i >= 0 && i < ed.ncurves && ed_draw[i] ? 1 : 0; }
+VIBE_EXPORT(vibe_wasm_editor_curve_draw) void vibe_wasm_editor_curve_draw(int i, const char *tab, int point, int count, float value)
+{
+  if (i < 0 || i >= ed.ncurves || !ed_draw[i] || count < 2 || count > 64 || point < 0 || point >= count) return;
+  ed_draw[i](tab ? tab : "", ed_curve[i].card, point, count, value < 0.0f ? 0.0f : value > 1.0f ? 1.0f : value);
+}
+VIBE_EXPORT(vibe_wasm_editor_buttons) int vibe_wasm_editor_buttons(void) { return ed_nbtn; }
+VIBE_EXPORT(vibe_wasm_editor_button) const void *vibe_wasm_editor_button(int i) { return i >= 0 && i < ed_nbtn ? (const void *)&ed_btn[i] : 0; }
+VIBE_EXPORT(vibe_wasm_editor_press) void vibe_wasm_editor_press(int i, const char *tab)
+{
+  if (i < 0 || i >= ed_nbtn) return;
+  int n = 0; if (tab) while (tab[n] && n < 31) { ed_evtab[n] = tab[n]; n++; }
+  ed_evtab[n] = 0;
+  vibe_event e = { VIBE_EV_EDITOR, (uint8_t)ed_btn[i].id, 1, { 0, 0, 0 }, 0 }; vibe_on_event(&e);
+}
+static uint8_t sx_in[4096];
+const uint8_t *vibe_sysex_in(void) { return sx_in; }
+VIBE_EXPORT(vibe_wasm_sysex_buf) uint8_t *vibe_wasm_sysex_buf(void) { return sx_in; }   /* (the host writes the bytes here …) */
+VIBE_EXPORT(vibe_wasm_sysex_in) void vibe_wasm_sysex_in(int n)                       /* (… and says how many) */
+{
+  if (n < 2 || n > (int)sizeof sx_in || sx_in[0] != 0xF0) return;
+  vibe_event e = { VIBE_EV_SYSEX, 0, 1, { 0, 0, 0 }, (float)n }; vibe_on_event(&e);
+}
+
+/* ---- SDK 16: bytes between the firmware and its own Editor page (Protokoll 9.4) ----------------------------------
+ * In: the host writes into the inbox and calls _data_in(n) in the firmware's flow. Out: { u32 len, u8 bytes[4096] } –
+ * the firmware fills bytes, then len; the host takes them after a block or an event and sets len back to 0. */
+static uint8_t ed_in[4096];
+static struct { volatile uint32_t len; uint8_t b[4096]; } ed_out;
+const uint8_t *vibe_editor_data(void) { return ed_in; }
+int vibe_editor_post(const uint8_t *bytes, int n)
+{
+  if (!bytes || n < 1 || n > (int)sizeof ed_out.b || ed_out.len) return -1;
+  for (int i = 0; i < n; i++) ed_out.b[i] = bytes[i];
+  ed_out.len = (uint32_t)n;
+  return 0;
+}
+VIBE_EXPORT(vibe_wasm_editor_inbox) uint8_t *vibe_wasm_editor_inbox(void) { return ed_in; }
+VIBE_EXPORT(vibe_wasm_editor_data_in) void vibe_wasm_editor_data_in(int n)
+{
+  if (n < 1 || n > (int)sizeof ed_in) return;
+  vibe_event e = { VIBE_EV_EDITOR_DATA, 0, 1, { 0, 0, 0 }, (float)n }; vibe_on_event(&e);
+}
+VIBE_EXPORT(vibe_wasm_editor_outbox) void *vibe_wasm_editor_outbox(void) { return (void *)&ed_out; }
 
 /* SDK 12: SHIFT + DATA = the soft keys, in every firmware (Sven 28.10.: a controller without F keys – an MPK mini – reaches
  * them): while SHIFT is held, DATA moves a frame over F1-F6 (drawn over the firmware's picture, at the house layout's
@@ -668,7 +748,12 @@ static void sk_press(void)
 static int sk_take(const vibe_event *e)          /* 1 = the soft-key gesture took it */
 {
   if (e->type == VIBE_EV_BUTTON && e->id == sk_swallow) { if (!e->down) sk_swallow = -1; return 1; }   /* (the press's release) */
-  if (e->type == VIBE_EV_BUTTON && e->id == VB_SHIFT) { sk_shift = e->down; if (!e->down) sk_on = 0; return 0; }
+  if (e->type == VIBE_EV_BUTTON && e->id == VB_SHIFT) { sk_shift = e->down; vf_shift = e->down; if (!e->down) sk_on = 0; return 0; }
+  if (vf_sw && sk_shift && e->type == VIBE_EV_ENCODER && e->id == VE_DATA && vf_md == VF_ON_HOLD && !vf_off) {   /* (vf_shift_walk: FOCUS instead of the soft-key frame) */
+    vf_t = vibe_frames();
+    if (!vf_on) { vf_on = 1; vf_edit = 0; vf_acc = 0; if (vf_index(vf_cur) < 0 && vf_n) vf_cur = VF[0].id; return 1; }   /* (the first turn: the frame shows) */
+    return 0;                                    /* (on: the firmware's vf_event walks or edits) */
+  }
   if (sk_shift && e->type == VIBE_EV_ENCODER && e->id == VE_DATA) {
     if (!sk_on) {                                /* the frame appears: SHIFT let go for the firmware (value -1 = "not a tap"), so it shows its plain keys – the ones pressed */
       sk_on = 1; sk_acc = 0;

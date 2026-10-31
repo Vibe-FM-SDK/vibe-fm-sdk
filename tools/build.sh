@@ -27,10 +27,27 @@ done
   --shared-memory --max-memory=67108864 -z stack-size=262144 -o "build/$ID.wasm" "$T"/*.o
 echo "built build/$ID.wasm ($(( $(wc -c < "build/$ID.wasm") / 1024 )) KB)"
 
-# the plugin's package: <id>.wasm + <id>.json in a zip (or drop the .wasm alone – it then shows its id as its name)
+# the plugin's package: <id>.wasm + <id>.json in a zip (or drop the .wasm alone – it then shows its id as its name);
+# SDK 16: an editor/ folder (your own Editor page, EDITOR-PAGE.md) goes in as <id>.editor/ – 2 MB at most
 cp "$DIR/firmware.json" "build/$ID.json"
-rm -f "build/$ID.zip"
-if command -v zip >/dev/null 2>&1; then (cd build && zip -q "$ID.zip" "$ID.wasm" "$ID.json")
-elif command -v python3 >/dev/null 2>&1; then python3 -c "import zipfile,sys; z=zipfile.ZipFile(sys.argv[1],'w',zipfile.ZIP_DEFLATED); [z.write(f, f.split('/')[-1]) for f in sys.argv[2:]]" "build/$ID.zip" "build/$ID.wasm" "build/$ID.json"
+rm -f "build/$ID.zip"; rm -rf "build/$ID.editor"
+if [ -d "$DIR/editor" ]; then
+  [ -f "$DIR/editor/index.html" ] || { echo "$DIR/editor/ has no index.html"; exit 1; }
+  KB=$(du -sk "$DIR/editor" | cut -f1); [ "$KB" -le 2048 ] || { echo "$DIR/editor/ is ${KB} KB – 2 MB (2048 KB) at most"; exit 1; }
+  cp -r "$DIR/editor" "build/$ID.editor"
 fi
+rm -f "build/$ID.png"; [ -f "$DIR/icon.png" ] && cp "$DIR/icon.png" "build/$ID.png"   # (its face: the VIBE's menu tile, the hub's card)
+if command -v zip >/dev/null 2>&1; then (cd build && zip -q -r "$ID.zip" "$ID.wasm" "$ID.json" $( [ -f "$ID.png" ] && echo "$ID.png" ) $( [ -d "$ID.editor" ] && echo "$ID.editor" ))
+elif command -v python3 >/dev/null 2>&1; then python3 -c "
+import zipfile, sys, os
+z = zipfile.ZipFile(sys.argv[1], 'w', zipfile.ZIP_DEFLATED); b = os.path.dirname(sys.argv[1])
+for f in sys.argv[2:]: z.write(f, f.split('/')[-1])
+ed = sys.argv[1][:-4] + '.editor'
+if os.path.isdir(ed):
+  for root, _, files in os.walk(ed):
+    for f in files: p = os.path.join(root, f); z.write(p, os.path.relpath(p, b))
+" "build/$ID.zip" "build/$ID.wasm" "build/$ID.json" $( [ -f "build/$ID.png" ] && echo "build/$ID.png" )
+fi
+[ -d "build/$ID.editor" ] && echo "its Editor page: build/$ID.editor/ (in the zip)"
+[ -f "build/$ID.png" ] || echo "(no icon.png – give your firmware a face: README, \"icon.png\")"
 [ -f "build/$ID.zip" ] && echo "packed build/$ID.zip – drop it onto the VIBE FM VST window" || echo "(no zip/python3: drop build/$ID.wasm and build/$ID.json onto the window instead)"

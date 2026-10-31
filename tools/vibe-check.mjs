@@ -78,6 +78,40 @@ else {
     check('Manifest', manifest.license ? true : null, manifest.license ? 'license ' + manifest.license : 'no license given (required for distribution)');
   }
 }
+
+// the firmware's face: icon.png next to firmware.json (or <id>.png next to the .wasm) – 16:9, PNG, 1 MB at most
+{
+  const ic = [mpath && path.join(path.dirname(mpath), 'icon.png'), path.join(path.dirname(file), id + '.png')].find((p) => p && fs.existsSync(p));
+  if (!ic) check('Icon', null, 'no icon.png next to firmware.json – recommended (its tile in the VIBE menu, its card in the hub)');
+  else {
+    const b = fs.readFileSync(ic), kb = Math.ceil(b.length / 1024);
+    if (b.length < 24 || b.toString('latin1', 1, 4) !== 'PNG') check('Icon', false, 'icon.png is not a PNG');
+    else {
+      const w = b.readUInt32BE(16), h = b.readUInt32BE(20), r = w / h;
+      if (kb > 1024) check('Icon', false, `icon.png: ${kb} KB – 1024 at most`);
+      else check('Icon', Math.abs(r - 16 / 9) < 0.08 ? true : null, Math.abs(r - 16 / 9) < 0.08 ? `icon.png ${w} × ${h}, ${kb} KB` : `icon.png: ${w} × ${h} – 16:9 recommended (e.g. 960 × 540)`);
+    }
+  }
+}
+
+// SDK 16: the firmware's own Editor page – editor/ next to firmware.json (or <id>.editor/ next to the .wasm)
+{
+  const dirs = [mpath && path.join(path.dirname(mpath), 'editor'), path.join(path.dirname(file), id + '.editor')].filter((d) => d && fs.existsSync(d));
+  if (dirs.length) {
+    const d = dirs[0], all = [], bad = [];
+    const walk = (p) => { for (const e of fs.readdirSync(p, { withFileTypes: true })) { const q = path.join(p, e.name); if (e.isDirectory()) walk(q); else all.push(q); } };
+    walk(d);
+    const kb = Math.ceil(all.reduce((s, f) => s + fs.statSync(f).size, 0) / 1024);
+    if (!fs.existsSync(path.join(d, 'index.html'))) bad.push('editor/ has no index.html');
+    if (kb > 2048) bad.push(`editor/ is ${kb} KB – 2048 at most`);
+    for (const f of all.filter((f) => /\.(html|js|css|svg)$/i.test(f))) {
+      const s = fs.readFileSync(f, 'utf8'), rel = path.relative(d, f), u = /(?:src|href|url\()\s*=?\s*["'(]?\s*(https?:\/\/|\/\/)[^"')\s]+/i.exec(s) || /fetch\(\s*["'`]https?:/i.exec(s);
+      if (u) bad.push(`${rel}: an outside address (${u[0].slice(0, 40)}) – the page has no network`);
+      if (/\beval\s*\(|new\s+Function\s*\(/.test(s)) bad.push(`${rel}: eval / new Function – blocked in the sandbox`);
+    }
+    check('Editor page', !bad.length, bad.length ? bad.slice(0, 3).join('; ') : `${all.length} files, ${kb} KB, no outside addresses`);
+  }
+}
 if (badImp.length || missing.length) report();
 
 // ---------------------------------------------------------------- a host that watches ----------------------------------
@@ -289,8 +323,19 @@ if (exports.get('vibe_wasm_editor') === 'function') {
       check('Editor', !xy.length, xy.length ? xy.slice(0, 3).join('; ') : 'controls valid (XY pairs, bipolar around 0)'); }
     if (tabs) { const bt = []; for (let i = 0; i < Math.min(ntabs, 8); i++) { const t = cstr(dv.getUint32(tabs + i * 8, true)); if (t == null || !groups.some((g) => g.tab === t)) bt.push(`tab "${t}" does not exist`); } check('Editor', !bt.length && ntabs <= 8, bt.length ? bt.join('; ') : `${ntabs} tab colours`); }
     if (help) { let long = 0; for (let i = 0; i < np; i++) { const t = cstr(dv.getUint32(help + i * 4, true)); if (t && t.length > 120) long++; } check('Editor', !long, long ? `${long} help texts over 120 characters` : 'help texts within length'); }
-    if (ncurves) { const bc = []; let slow = 0; for (let i = 0; i < Math.min(ncurves, 16); i++) { const c = cstr(x.vibe_wasm_editor_curve_card(i)); if (!known.has(c)) bc.push(`curve for "${c}": no such card`); const t0 = performance.now(), n = x.vibe_wasm_editor_curve(i, 0); if (performance.now() - t0 > 1) slow++; if (n < 2 || n > 64) bc.push(`curve "${c}": ${n} points (2..64)`); }
+    if (ncurves) { const bc = []; let slow = 0; for (let i = 0; i < Math.min(ncurves, 16); i++) { const c = cstr(x.vibe_wasm_editor_curve_card(i)); if (!known.has(c)) bc.push(`curve for "${c}": no such card`); x.vibe_wasm_editor_curve(i, 0); const t0 = performance.now(), n = x.vibe_wasm_editor_curve(i, 0);   /* (once before: the first call compiles) */ if (performance.now() - t0 > 1) slow++; if (n < 2 || n > 64) bc.push(`curve "${c}": ${n} points (2..64)`); }
       check('Editor', !bc.length && !slow && ncurves <= 16, bc.length ? bc.join('; ') : slow ? `${slow} curves take over 1 ms` : `${ncurves} curves, 2..64 points, under 1 ms`); }
+    // SDK 15: a curve to draw – every point once, then the curve still 2..64 points; buttons: a label of 1..15 characters
+    if (ncurves && x.vibe_wasm_editor_curve_drawable) { let nd = 0, slow = 0; const bd = [];
+      for (let i = 0; i < Math.min(ncurves, 16); i++) { if (!x.vibe_wasm_editor_curve_drawable(i)) continue; nd++;
+        const c = cstr(x.vibe_wasm_editor_curve_card(i)), n = x.vibe_wasm_editor_curve(i, 0);
+        for (let k = 0; k < n; k++) { const t0 = performance.now(); x.vibe_wasm_editor_curve_draw(i, 0, k, n, (k % 3) / 2); if (performance.now() - t0 > 1) slow++; }
+        const m = x.vibe_wasm_editor_curve(i, 0); if (m < 2 || m > 64) bd.push(`curve "${c}" after drawing: ${m} points`); }
+      if (nd) check('Editor', !bd.length && !slow, bd.length ? bd.join('; ') : slow ? `drawing: ${slow} points over 1 ms` : `${nd} curves to draw, every point under 1 ms`); }
+    if (x.vibe_wasm_editor_buttons && x.vibe_wasm_editor_buttons()) { const nb = x.vibe_wasm_editor_buttons(), bb = [];
+      for (let i = 0; i < Math.min(nb, 16); i++) { const q = x.vibe_wasm_editor_button(i), c = cstr(dv.getUint32(q, true)), l = cstr(dv.getUint32(q + 4, true));
+        if (!c) bb.push(`button ${i}: no card`); if (!l || l.length > 15) bb.push(`button ${i}: label of ${l ? l.length : 0} characters (1..15)`); }
+      check('Editor', !bb.length && nb <= 16, bb.length ? bb.slice(0, 3).join('; ') : `${nb} buttons`); }
   }
 }
 if (hunted) check('Robustness', false, hunted);

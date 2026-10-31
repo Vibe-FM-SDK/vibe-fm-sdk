@@ -79,6 +79,11 @@ is closer to what you want.
 
 The id is the folder's name; it must not change once people use your firmware (their saved files and DAW projects hang on it).
 
+**`icon.png` – give your firmware a face.** Put a picture next to `firmware.json`: 16:9, e.g. 960 × 540, PNG, up to
+1 MB. It becomes your firmware's tile in the VIBE FM main menu (a 3 × 2 grid of small tiles, 148 × 83 on the device)
+and its card in The Firmware Hub. Make it read small: one strong motif, big shapes, little or no text. `tools/build.sh`
+packs it into the zip; `vibe-check` reminds you when it is missing.
+
 ## How a firmware works
 
 A firmware implements four functions. The host calls them one after the other from one thread – no locks needed.
@@ -185,6 +190,20 @@ answers "not yet" (-2) until the bytes are there, then sends `VIBE_EV_MEDIA` REA
 crash. Start from **`examples/example-media`**; the rules are in `AGENTS.md` ("SDK 13") and `sdk/include/vibe.h`.
 `tools/wasmtest.mjs` takes `"media": {...}` in a script, `vibe-check` pulls a stick halfway through.
 The emulator has it now; the VIBE FM VST gets it with its next version (0.4.2 answers -1: your firmware still loads).
+
+## New in SDK 14, 15 and 16: drops, an Editor that talks back – and your own Editor page
+
+**SDK 14:** files dropped onto the plugin's window reach your firmware (`vibe_media_dropped`) – a sample onto a pad.
+
+**SDK 15:** a card's curve the mouse can draw (`vibe_editor_curve_draw`: a wavetable, a step shape), buttons on a card
+(`vibe_editor_button` → `VIBE_EV_EDITOR`), and SysEx coming in (`VIBE_EV_SYSEX`, `vibe_sysex_in`) – with
+`vibe_midi_send_sysex` a firmware swaps patches with a hardware synth. Menus in the Editor step with ◀ ▶.
+
+**SDK 16 – your own Editor page:** an `editor/` folder (HTML, CSS, JS) next to your `.c` files replaces the Editor's
+cards in the plugin: your design, your controls, still a firmware that plays everywhere. It runs in a sandbox and
+talks to your firmware through `window.vibe` – parameters, curves, notes, the display, and bytes both ways
+(`vibe.send` ↔ `vibe_editor_post`). **[EDITOR-PAGE.md](EDITOR-PAGE.md)** is the guide; `examples/example-synth/editor/`
+a complete page. Needs VIBE FM VST 0.6.0.
 
 ## Updates
 

@@ -199,8 +199,8 @@ static int ed_lfo_curve(const char *tab, const char *card, float *pts, int max) 
 }
 static void daw_editor(void)
 {
-    static const uint8_t ORDER[] = {PG_OSC1, PG_OSC2, PG_OSCMOD, PG_FILTER, PG_FILTER2, PG_FENV, PG_AENV, PG_LFO, PG_LFODEST, PG_LFO2,
-                                    PG_VOICE, PG_OUTPUT, PG_ARP, PG_CHORUS, PG_DELAY, PG_REVERB};
+    static const uint8_t ORDER[] = {PG_OSC1, PG_OSC2, PG_VOICE, PG_OSCMOD, PG_FILTER, PG_FILTER2, PG_FENV, PG_AENV, PG_LFO, PG_LFODEST, PG_LFO2,
+                                    PG_OUTPUT, PG_ARP, PG_CHORUS, PG_DELAY, PG_REVERB};
     int j, n = 0;
     for (uint32_t k = 0; k < sizeof ORDER; k++) {
         uint32_t g = ORDER[k];

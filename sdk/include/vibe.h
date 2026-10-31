@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 13        /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 16       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -44,7 +44,15 @@
                                       13 (29.10.2026): media from outside (vibe_media_*): samples and songs on the VIBE's
                                       card, a USB stick, a folder the browser or the plugin was given – read in pieces,
                                       written only into "VIBE FM/<firmware>/". New ops of vibe_host_store, no new import:
-                                      an SDK-13 firmware still runs on every host (an older one answers -1). */
+                                      an SDK-13 firmware still runs on every host (an older one answers -1).
+                                      14 (30.10.2026): files dropped onto the plugin's window (vibe_media_dropped, op 13):
+                                      a sample from the desktop or the DAW onto a pad – nothing new for older hosts (-1).
+                                      15 (31.10.2026): the Editor talks back – a curve you draw (vibe_editor_curve_draw),
+                                      buttons on a card (vibe_editor_button, VIBE_EV_EDITOR) – and SysEx in
+                                      (VIBE_EV_SYSEX, vibe_sysex_in). Optional exports again: an older host shows no
+                                      buttons and sends no SysEx; the firmware still runs.
+                                      16 (31.10.2026): the firmware's own Editor page (editor/, EDITOR-PAGE.md) and bytes
+                                      between it and the firmware (vibe_editor_post, VIBE_EV_EDITOR_DATA). */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -95,7 +103,14 @@ typedef enum {
                            a file written with vibe_media_create is complete (down 1) or failed (down 0), value = its handle;
                            id VIBE_MEDIA_EV_READY – something the host said VIBE_MEDIA_PENDING for has come: ask again
                            (sent once for all that came; a host that stops drawing – the plugin with its window closed –
-                           still sends it, so a firmware that reads on READY never stalls) */
+                           still sends it, so a firmware that reads on READY never stalls); SDK 14: id VIBE_MEDIA_EV_DROPPED –
+                           a file was dropped onto the host's window: take it with vibe_media_dropped (value = how many wait) */
+  VIBE_EV_EDITOR = 13,  /* SDK 15: a button of yours in the Editor was clicked (vibe_editor_button): id = your id, down 1;
+                           vibe_editor_event_tab() says on which tab */
+  VIBE_EV_SYSEX = 14,   /* SDK 15: a SysEx message came in (F0 … F7, a hardware's dump): value = its length in bytes,
+                           the bytes in vibe_sysex_in() – valid during this event only */
+  VIBE_EV_EDITOR_DATA = 15,   /* SDK 16: bytes from your own Editor page (vibe.send in its JavaScript): value = their
+                           length, the bytes in vibe_editor_data() – valid during this event only */
   VIBE_EV_TRANSPORT = 8 /* SDK 7: the host's transport (the DAW in the plugin; a MIDI clock on the device and in the browser): id VIBE_TRANSPORT_PLAY: down 1 = it plays
                            (from the top, at this frame), 0 = it stopped; id VIBE_TRANSPORT_TEMPO: value = BPM (0 = the host
                            gives none any more: the firmware's own tempo again). Sent when it changes, tempo before play. */
@@ -248,6 +263,33 @@ void vibe_editor_tab_color(const char *tab, uint32_t rgb);
 typedef int (*vibe_curve_fn)(const char *tab, const char *card, float *points, int max);   /* returns the points' count */
 void vibe_editor_curve(const char *card, vibe_curve_fn fn);
 
+/* SDK 15: a curve you draw – the mouse changes the card's curve (a wavetable, a step shape, your own LFO). fn gets the
+   point under the mouse (0..count-1, count = the points the curve has now) and its value 0..1, many times while one
+   drags; change what the curve shows (a table, or vibe_param_set on the parameters behind it) – the Editor asks the
+   curve again. Called in the firmware's flow like vibe_on_event, never from vibe_on_audio. The card needs a curve
+   (vibe_editor_curve) first. Plugin only; the device and the browser ignore it. */
+typedef void (*vibe_curve_draw_fn)(const char *tab, const char *card, int point, int count, float value);
+void vibe_editor_curve_draw(const char *card, vibe_curve_draw_fn fn);
+
+/* SDK 15: a button on a card ("SEND", "GET DUMP", "EXPORT"): clicked, it sends VIBE_EV_EDITOR with your id. The same
+   card name on every tab: one button on each, vibe_editor_event_tab() tells them apart. Up to 16 buttons, label up to
+   15 characters. With vibe_midi_send_sysex, VIBE_EV_SYSEX, vibe_media_create (SDK 13) and a dropped file (SDK 14) a
+   firmware moves its patches between itself, a hardware synth and files – no extra channel needed. Plugin only. */
+void vibe_editor_button(const char *card, const char *label, int id);   /* id 0..255 */
+const char *vibe_editor_event_tab(void);          /* the tab of the last VIBE_EV_EDITOR ("" without tabs) */
+
+/* SDK 15: the bytes of the SysEx that came in (VIBE_EV_SYSEX), up to 4096 – a longer one is dropped */
+const uint8_t *vibe_sysex_in(void);
+
+/* SDK 16: your own Editor page – a folder editor/ next to your .c files (index.html, its JS, CSS, images; 2 MB at
+   most) replaces the Editor's cards in the plugin (EDITOR-PAGE.md). The page talks to the firmware through the host:
+   parameters as always (vibe_params), and bytes both ways for everything else (a wavetable, a pattern, a name):
+   vibe_editor_post sends to the page (its vibe.onData), VIBE_EV_EDITOR_DATA brings what the page sent (vibe.send).
+   Up to 4096 bytes a message. post: 0 = sent, -1 = too long, or the page has not taken the last one yet (try again
+   from the next vibe_on_draw). Not from vibe_on_audio. Without a page (the device, an older host) nothing arrives. */
+int vibe_editor_post(const uint8_t *bytes, int n);
+const uint8_t *vibe_editor_data(void);           /* the bytes of VIBE_EV_EDITOR_DATA */
+
 /* a short help for a parameter (a tooltip in the plugin; the device shows nothing) – up to 120 characters */
 void vibe_param_help(int param, const char *text);
 
@@ -297,7 +339,7 @@ int vibe_store_read_at(const char *name, int offset, void *data, int bytes);
    buffer that the audio plays from and fill it ahead. */
 #define VIBE_MEDIA_PENDING (-2)
 #define VIBE_MEDIA_PATH    1024       /* a path's buffer, with its 0 */
-enum { VIBE_MEDIA_EV_SOURCES, VIBE_MEDIA_EV_WRITTEN, VIBE_MEDIA_EV_READY };   /* ids of VIBE_EV_MEDIA */
+enum { VIBE_MEDIA_EV_SOURCES, VIBE_MEDIA_EV_WRITTEN, VIBE_MEDIA_EV_READY, VIBE_MEDIA_EV_DROPPED };   /* ids of VIBE_EV_MEDIA */
 /* the sources, one per line: "<key>\t<flags>\t<label>\n" – flags: 'w' = writes go here, 'u' = removable (USB), 'n' = network.
    Returns the bytes written (whole lines; 0 = no sources), -1 = this host has no media. The first call also asks for
    VIBE_EV_MEDIA. */
@@ -322,6 +364,13 @@ int vibe_media_append(int handle, const void *data, int bytes);
 /* finished: keep = 1 the file stays, 0 it is thrown away. Returns 0 (-1 = no such handle). The file appears under its
    name only when it is complete; VIBE_EV_MEDIA / VIBE_MEDIA_EV_WRITTEN says when. */
 int vibe_media_close(int handle, int keep);
+/* SDK 14: drag & drop – a file let go on the host's window (the plugin: a sample from the desktop or the DAW). The host
+   copies it into "VIBE FM/<firmware id>/dropped/" on its writing source first, so it stays where the firmware's kit finds
+   it. The oldest one waiting: its path into `path` (VIBE_MEDIA_PATH bytes are enough), *pad = the pad it was let go on
+   (0..15, else -1), *x / *y = where on the display (0..479 / 0..319, else -1) – any may be 0. Returns 1 = one taken (ask
+   again: more may wait), 0 = none, -1 = this host takes no drops. Call it once in vibe_on_init: the host lets files be
+   dropped only for a firmware that asked, and sends VIBE_EV_MEDIA / VIBE_MEDIA_EV_DROPPED when one comes. */
+int vibe_media_dropped(char *path, int max_bytes, int *pad, int *x, int *y);
 
 /* ---- time (SDK 5) ---------------------------------------------------------------------------------------------- */
 /* The timeline: frames computed since the first vibe_on_audio (frame 0). vibe_frames() = the first frame of the next

@@ -14,6 +14,8 @@
   .status { margin: 10px 0 0; font: 400 11.5px var(--mono); color: var(--muted); min-height: 16px; letter-spacing: 0.03em; }
   .status.bad { color: #FF5A4D; }
   body.plugin.dropping::after { content: 'Drop the firmware here – the .zip from thefirmwarehub.com (or its .wasm)'; position: fixed; inset: 12px; z-index: 50; display: grid; place-items: center; text-align: center; padding: 24px; border: 3px dashed #FF60BE; border-radius: 30px; background: rgba(11, 12, 14, 0.82); font: 800 26px var(--sans); color: var(--fg); pointer-events: none; }
+  body.plugin.dropping.drop-media::after { content: 'Drop samples onto a pad or the display – a firmware (.zip) anywhere'; inset: auto 12px 12px 12px; padding: 10px 16px; border-width: 2px; border-radius: 14px; font: 700 16px var(--sans); }
+  .droptarget { outline: 3px solid #FF60BE !important; outline-offset: 2px; }
   .stagewrap.drop::after { content: 'Drop firmware (.wasm) here'; position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; border: 3px dashed var(--accent); border-radius: 30px; background: rgba(11, 12, 14, 0.7); font: 800 28px var(--sans); color: var(--fg); }
   .dispmenu p { margin: 0 0 8px; color: #8A93A6; font-size: 11px; }
 </style>

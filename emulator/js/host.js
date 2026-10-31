@@ -621,11 +621,27 @@ async function pluginMode() {
     checkEditor().then((ok) => { if (ok && e0 === '1') setEd(true); });
   }
   {                                                   // (the whole window takes the drop – a file let go anywhere would else open in the view)
-    let n = 0; const off = () => { n = 0; document.body.classList.remove('dropping'); };
-    window.addEventListener('dragenter', (e) => { e.preventDefault(); n++; document.body.classList.add('dropping'); });
-    window.addEventListener('dragover', (e) => { e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'; });
+    // SDK 14: a firmware that takes samples (vibe_media_dropped) – audio files go to it, onto the pad or the display spot
+    // they are let go on (the device stays visible: a slim hint instead of the firmware sheet)
+    let n = 0, mark = null; const off = () => { n = 0; document.body.classList.remove('dropping'); if (mark) mark.classList.remove('droptarget'); mark = null; };
+    const askTakes = () => (window.vibe_drop ? window.vibe_drop('takes', 0, '', -1, -1, -1) : Promise.resolve('0'))
+      .then((r) => { document.body.classList.toggle('drop-media', r === '1'); }, () => {});
+    window.addEventListener('dragenter', (e) => { e.preventDefault(); if (n++ === 0) askTakes(); document.body.classList.add('dropping'); });
+    window.addEventListener('dragover', (e) => {
+      e.preventDefault(); if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+      const t = document.body.classList.contains('drop-media') ? dropTarget(e) : null, el = t && t.el;
+      if (el !== mark) { if (mark) mark.classList.remove('droptarget'); if (el) el.classList.add('droptarget'); mark = el; }
+    });
     window.addEventListener('dragleave', () => { if (--n <= 0) off(); });
-    window.addEventListener('drop', (e) => { e.preventDefault(); off(); if (e.dataTransfer && e.dataTransfer.files.length) pluginInstall(e.dataTransfer.files); });
+    window.addEventListener('drop', (e) => {
+      e.preventDefault(); off();
+      const n = e.dataTransfer ? e.dataTransfer.files.length : -1;
+      if (window.vibe_log) window.vibe_log('drop: ' + n + ' file(s)');   // (0.5.0: a drop that did nothing on macOS 27 – what arrives)
+      if (n <= 0) return;
+      const files = [...e.dataTransfer.files], sounds = files.filter((f) => AUDIO.test(f.name)), rest = files.filter((f) => !AUDIO.test(f.name));
+      if (sounds.length) pluginDropSamples(sounds, dropTarget(e));
+      if (rest.length || !sounds.length) pluginInstall(rest.length ? rest : files);
+    });
   }
   if (window.vibe_midi_ports) {                       // the plugin reads the MIDI controllers itself (CoreMIDI): mapped as here
     pluginMidi(); ctl.plugin = true;                  // (the DAW plays the notes: only the controller mapping is ours)
@@ -672,6 +688,45 @@ async function pluginLibrary() {
   else if (!library.length) status('No firmware yet – get some at thefirmwarehub.com/convert, then drop the .zip onto this window', true);
   else status(cur ? `${cur} is not in the firmware folder – choose one above` : 'Choose a firmware above', !!cur);   // (a new instance plays nothing until one is chosen)
 }
+// SDK 14: where a drop lands – a pad (the full view), else a spot on the display (480 x 320), else nowhere in particular
+function dropTarget(e) {
+  const hit = (el) => { if (!el || el.offsetParent === null) return null; const r = el.getBoundingClientRect(); return r.width > 0 && e.clientX >= r.left && e.clientX < r.right && e.clientY >= r.top && e.clientY < r.bottom ? r : null; };
+  for (let i = 0; i < panel.pads.length; i++) if (hit(panel.pads[i])) return { pad: i, x: -1, y: -1, el: panel.pads[i] };
+  for (const c of [panel.bigCanvas, panel.canvas]) {
+    const r = hit(c); if (r) return { pad: -1, x: Math.min(479, Math.floor((e.clientX - r.left) * 480 / r.width)), y: Math.min(319, Math.floor((e.clientY - r.top) * 320 / r.height)), el: c };
+  }
+  return { pad: -1, x: -1, y: -1, el: null };
+}
+// SDK 14: samples dropped onto the window go to the firmware (vibe_drop, see the plugin's dropFile): WAV and MP3 as they
+// are, the other formats the WebView can read (AIFF, FLAC, M4A …) as a 24-bit WAV. In pieces of 3 MB (base64 over the
+// bridge). Several files dropped on a pad: that pad and the ones after it
+async function pluginDropSamples(files, at) {
+  if (!window.vibe_drop) { status('This plugin cannot take samples yet – update VIBE FM VST', true); return; }
+  if (await window.vibe_drop('takes', 0, '', -1, -1, -1) !== '1') { status((current ? current.name : 'This firmware') + ' takes no samples by drag & drop', true); return; }
+  const CH = 3 << 20, done = [], errors = [];
+  for (let i = 0; i < files.length; i++) {
+    const f = files[i], keep = KEEP.test(f.name), pad = at.pad >= 0 ? Math.min(15, at.pad + i) : -1;
+    const name = keep ? f.name : f.name.replace(/\.[^.]*$/, '') + '.wav';
+    status('Sample ' + (i + 1) + ' / ' + files.length + ': ' + f.name + (keep ? '' : ' → WAV') + ' …');
+    let data;
+    try { data = new Uint8Array(keep ? await f.arrayBuffer() : wav24(await new OfflineAudioContext(2, 1, 48000).decodeAudioData(await f.arrayBuffer()))); }
+    catch (err) { errors.push(f.name + ': cannot read it'); continue; }
+    let r = JSON.parse(await window.vibe_drop('begin', data.length, name, -1, -1, -1));
+    if (r.error) { errors.push(f.name + ': ' + r.error); continue; }
+    const id = r.id;
+    for (let o = 0; o < data.length && !r.error; o += CH) {
+      const u = data.subarray(o, o + CH); let bin = '';
+      for (let k = 0; k < u.length; k += 0x8000) bin += String.fromCharCode.apply(null, u.subarray(k, k + 0x8000));
+      r = JSON.parse(await window.vibe_drop('data', id, btoa(bin), -1, -1, -1));
+      if (data.length > CH) status('Sample ' + (i + 1) + ' / ' + files.length + ': ' + f.name + ' ' + Math.round(Math.min(100, (o + CH) * 100 / data.length)) + ' %');
+    }
+    if (!r.error) r = JSON.parse(await window.vibe_drop('end', id, '', pad, at.x, at.y));
+    else window.vibe_drop('cancel', id, '', -1, -1, -1);
+    if (r.error) errors.push(f.name + ': ' + r.error); else done.push(f.name);
+  }
+  if (done.length) status((done.length === 1 ? done[0] : done.length + ' samples') + ' → ' + (current ? current.name : 'the firmware') + (at.pad >= 0 ? ', pad ' + (at.pad + 1) : '') + (errors.length ? ' · ' + errors.join(' · ') : ''), !!errors.length);
+  else status(errors.join(' · ') || 'Nothing dropped', true);
+}
 // 0.2.0: firmware into the plugin – the hub's .zip (or an .wasm / .json) dropped onto the window or chosen; the plugin
 // writes <id>.wasm + <id>.json into its firmware folder, the list is read again and the (first) new one starts
 async function pluginInstall(files) {
@@ -686,11 +741,22 @@ async function pluginInstall(files) {
     let r; try { r = JSON.parse(await window.vibe_install(f.name, btoa(bin))); } catch (e) { r = { error: String(e.message || e) }; }
     if (r.ids) ids.push(...r.ids); else if (!/\.json$/i.test(f.name) || files.length === 1) errors.push(f.name + ': ' + r.error);
   }
+  await pluginInstalled(ids, errors);
+}
+async function pluginInstalled(ids, errors) {
   await pluginLibrary();
   if (ids.length) { const r = await window.vibe_load(ids[0]); if (r !== 'ok') { status(r, true); return; } await pluginLibrary(); status('Installed ' + ids.map((id) => (library.find((f) => f.id === id) || { name: id }).name).join(', ') + ' – it is in the list now' + (errors.length ? ' · ' + errors.join(' · ') : ''), !!errors.length); }
   else status(errors.join(' · ') || 'Nothing installed', true);
 }
 function pluginPick() {
+  if (window.vibe_pick) {                             // 0.5.0 (macOS): the Mac's own open panel, the plugin installs what was chosen
+    hideMenu();
+    window.vibe_pick().then((s) => {
+      let r; try { r = JSON.parse(s); } catch (e) { r = { error: String(e.message || e) }; }
+      if (!r.cancel) pluginInstalled(r.ids || [], r.error ? [r.error] : []);
+    });
+    return;
+  }
   let inp = $('#fwadd');
   if (!inp) {
     inp = document.createElement('input'); inp.type = 'file'; inp.id = 'fwadd'; inp.accept = '.zip,.wasm,.json'; inp.multiple = true; inp.hidden = true;

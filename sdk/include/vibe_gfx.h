@@ -78,5 +78,11 @@ void vf_enable(int on);
 int  vf_focus(void);                                          /* the id in focus (-1: none yet) */
 int  vf_editing(void);                                        /* 1 while a value is being changed */
 void vf_set_focus(int id);
+/* SHIFT + DATA walks FOCUS (30.10.2026, opt-in, for a VF_ON_HOLD firmware whose DATA has a job of its own – VOX): instead
+ * of SDK 12's soft-key frame, SHIFT held + DATA turned shows the frame and walks EVERY control of the page (the soft keys
+ * too, when the firmware registers them with vf_key), as VIBE DJ's DECKS do with DATA alone. DATA / ENTER pressed = edit
+ * or press, as always. The frame stays when SHIFT is let go (DATA then walks it alone, the MPK's knob press works); it
+ * goes with RETURN, ENTER held, or 6 s without a touch. Call once in vibe_on_init. */
+void vf_shift_walk(int on);
 
 #endif

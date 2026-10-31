@@ -54,7 +54,7 @@ static volatile uint8_t ctl_m_vol = 100, ctl_m_dj = 64, ctl_m_drive, ctl_m_comp;
 /* (VIBE) the next pattern's mixer, drive and master, prepared by the main loop with the pattern (pat_q), taken by the ISR
  * on the downbeat it swaps the pattern in – the mix changes with the first note, not a frame later */
 typedef struct { uint8_t lvl[NPART], cho[NPART], dly[NPART], rev[NPART], drv[NPART]; int8_t pan[NPART]; uint32_t off;
-                 uint8_t dv_type, dv_amt, dv_tone, dv_mix, m_vol, m_dj, m_drive, m_comp; } mxq_t;
+                 uint8_t dv_type, dv_amt, dv_tone, dv_mix, m_vol, m_dj, m_drive, m_comp, tempo; } mxq_t;   /* tempo 0: unchanged */
 static mxq_t mx_q;
 static volatile uint32_t ctl_mx_swap;
 static voice_t vc[NV];

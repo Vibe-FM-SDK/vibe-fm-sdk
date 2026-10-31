@@ -1,14 +1,15 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* OberVave 3 – the pages and what the four encoders do on them. The sound pages are OberVave's own table (PAGE in
  * obv_params.h); each colour key steps through its group as in 2.0:
- *   SOUND OSC 1 → OSC 2 → OSC MOD → FILTER → FILTER +   ENV  FILTER ENV → AMP ENV   LFO  LFO → LFO DEST → LFO +
+ *   SOUND OSC 1 → OSC 2 → VOICE → OSC MOD → FILTER → FILTER +   ENV  FILTER ENV → AMP ENV   LFO  LFO → LFO DEST → LFO +
  *   ARP   ARP (on it again: the track's HOLD)          FX   CHORUS → DELAY → REVERB → DRIVE
- *   F6    GLOBAL → VOICE → OUTPUT              HOME  PERFORM */
+ *   F6    GLOBAL → OUTPUT                      HOME  PERFORM
+ * (3.2: VOICE – mode, unison, glide – is part of the sound, so it sits under SOUND, not under F6) */
 static uint32_t page = PG_PERFORM, hold;        /* hold: bit t = track t's HOLD (the arp keeps playing) */
 typedef struct { uint8_t first, count, key; } group_t;   /* key: the colour key 0..5 lit for it, 6 = F6, 7 = none */
 static const group_t GROUPS[] = {
-    {PG_PERFORM, 1, 7}, {PG_OSC1, 5, CK_SOUND}, {PG_FENV, 2, CK_ENV}, {PG_LFO, 3, CK_LFO}, {PG_ARP, 1, CK_ARP}, {PG_CHORUS, 4, CK_FX},
-    {PG_GLOBAL, 1, 6}, {PG_VOICE, 2, 6},
+    {PG_PERFORM, 1, 7}, {PG_OSC1, 6, CK_SOUND}, {PG_FENV, 2, CK_ENV}, {PG_LFO, 3, CK_LFO}, {PG_ARP, 1, CK_ARP}, {PG_CHORUS, 4, CK_FX},
+    {PG_GLOBAL, 1, 6}, {PG_OUTPUT, 1, 6},
 };
 static const group_t *page_group(uint32_t pg)
 {
@@ -22,7 +23,7 @@ static uint32_t cycle_page(uint32_t first, uint32_t count)   /* a key steps thro
     return first;
 }
 static int key_lit(void) { const group_t *g = page_group(page); return g->key < 6 ? g->key : -1; }
-static int global_lit(void) { return page == PG_GLOBAL || page == PG_VOICE || page == PG_OUTPUT; }
+static int global_lit(void) { return page == PG_GLOBAL || page == PG_OUTPUT; }
 
 static const char *const DV_NAME[NDV] = {"OVERDRV", "DIST", "FUZZ", "CRUSH"};
 static const char *const CLICK_NAME[NCLICK] = {"OFF", "REC", "ON", "COUNT-IN"};

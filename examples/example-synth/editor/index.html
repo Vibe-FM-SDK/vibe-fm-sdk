@@ -1,0 +1,30 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 – Copyright 2026 Sven Trogus (zvenson). VIBE FM SDK. -->
+<!-- example-synth's own Editor page (SDK 16): a filter pad, the envelope, the volume, a keyboard and the display.
+     Plain HTML, CSS and JS – no framework. vibe-editor.js comes from the host (see EDITOR-PAGE.md). -->
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>EXAMPLE SYNTH</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header><h1>EXAMPLE SYNTH</h1><canvas id="disp" width="480" height="320"></canvas></header>
+  <main>
+    <section class="card filter">
+      <h2>FILTER</h2>
+      <div id="pad"><div id="dot"></div></div>
+      <p class="val"><span id="cut"></span> · <span id="res"></span></p>
+    </section>
+    <section class="card env">
+      <h2>ENVELOPE</h2>
+      <label>Attack <input type="range" id="attack" min="0" max="1000"><span id="attack-v"></span></label>
+      <label>Release <input type="range" id="release" min="0" max="1000"><span id="release-v"></span></label>
+      <label>Volume <input type="range" id="volume" min="0" max="1000"><span id="volume-v"></span></label>
+    </section>
+  </main>
+  <footer id="keys"></footer>
+  <script src="vibe-editor.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

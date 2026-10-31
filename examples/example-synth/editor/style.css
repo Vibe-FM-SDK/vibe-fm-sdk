@@ -1,0 +1,23 @@
+/* SPDX-License-Identifier: Apache-2.0 – Copyright 2026 Sven Trogus (zvenson). VIBE FM SDK. */
+/* the host's look comes as CSS variables (--vibe-bg, --vibe-fg, --vibe-muted, --vibe-line, --vibe-accent, --vibe-font) */
+:root { --bg: var(--vibe-bg, #0B0C0E); --fg: var(--vibe-fg, #E9E7E2); --acc: var(--vibe-accent, #FF60BE); --line: var(--vibe-line, #2C2E33); }
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 14px var(--vibe-font, sans-serif); }
+body { display: grid; grid-template-rows: auto 1fr auto; gap: 14px; padding: 14px; }
+header { display: flex; align-items: center; justify-content: space-between; }
+h1 { margin: 0; font-size: 22px; letter-spacing: .08em; }
+h2 { margin: 0 0 10px; font-size: 12px; letter-spacing: .1em; color: var(--acc); }
+#disp { width: 180px; height: 120px; border-radius: 6px; image-rendering: pixelated; border: 1px solid var(--line); }
+main { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; min-height: 0; }
+.card { border: 1px solid var(--line); border-radius: 12px; padding: 14px; background: #15171b; }
+#pad { position: relative; height: 200px; border-radius: 8px; background: linear-gradient(135deg, #1c1f24, #24202a); cursor: crosshair; touch-action: none; }
+#dot { position: absolute; width: 18px; height: 18px; margin: -9px; border-radius: 50%; background: var(--acc); box-shadow: 0 0 16px var(--acc); pointer-events: none; }
+.val { margin: 8px 0 0; font-size: 12px; opacity: .8; }
+label { display: grid; grid-template-columns: 70px 1fr 70px; align-items: center; gap: 8px; margin: 14px 0; font-size: 12px; }
+input[type=range] { accent-color: var(--acc); }
+label span { text-align: right; font-variant-numeric: tabular-nums; }
+#keys { display: flex; height: 70px; gap: 2px; }
+#keys button { flex: 1; border: 0; border-radius: 0 0 6px 6px; background: #e9e7e2; cursor: pointer; }
+#keys button.black { background: #222; }
+#keys button.on { background: var(--acc); }
+@media (max-width: 700px) { main { grid-template-columns: 1fr; } }

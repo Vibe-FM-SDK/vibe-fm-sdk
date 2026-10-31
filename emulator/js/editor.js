@@ -6,13 +6,27 @@
 // SDK 9 (28.10.): vibe_editor() – how the firmware wants it: its cards in its order and width, a control per parameter
 // (slider, toggle, menu, bipolar, an XY pad of two), its accent and tab colours, a curve per card (vibe_editor_curve(i, tab),
 // polled: the plugin makes it on the audio thread), a help line per parameter. Without it: as before.
+// SDK 16 (31.10.): a firmware's own Editor page (vibe_editor_page()) – CUSTOM · STANDARD; the page in a sandboxed iframe,
+// its calls come as postMessage (pageMsg) and go on to the bindings above; vibe-editor.js is its side.
 
-const h = (tag, cls, parent, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; if (parent) parent.appendChild(e); return e; };
+// (31.10.2026, ideas from Andrew GG's PR) a button is always type=button; clp / nrm; drag: one pointer handler for a knob,
+// a pad, a drawn curve – fn(e, first) while held, up() when let go
+const h = (tag, cls, parent, text) => { const e = document.createElement(tag); if (tag === 'button') e.type = 'button'; if (cls) e.className = cls; if (text != null) e.textContent = text; if (parent) parent.appendChild(e); return e; };
+const ns = (tag, cls, parent) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); if (cls) e.setAttribute('class', cls); if (parent) parent.appendChild(e); return e; };
+const clp = (v, a, b) => Math.max(a, Math.min(b, v));
+const nrm = (p, v) => p.max > p.min ? (v - p.min) / (p.max - p.min) : 0;
+const drag = (el, fn, up) => {
+  let held = false;
+  el.addEventListener('pointerdown', (e) => { el.setPointerCapture(e.pointerId); held = true; e.preventDefault(); fn(e, true); });
+  el.addEventListener('pointermove', (e) => { if (held) fn(e, false); });
+  const end = () => { if (held) { held = false; if (up) up(); } };
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+};
 
 export class Editor {
   constructor() {
     this.el = h('section', 'editor', document.body); this.el.hidden = true;
-    const side = h('div', 'ed-side', this.el);
+    const side = this.side = h('div', 'ed-side', this.el);
     this.canvas = h('canvas', 'ed-disp', side); this.canvas.width = 480; this.canvas.height = 320;
     this.ctx = this.canvas.getContext('2d'); this.img = this.ctx.createImageData(480, 320);
     this.tabs = h('div', 'ed-tabs', side);
@@ -21,6 +35,10 @@ export class Editor {
     this.params = []; this.knobs = new Map(); this.tab = null; this.pending = new Map(); this.held = -1; this.touched = new Map();
     this.timer = 0;
     this.ed = null; this.curves = new Map(); this.curveLast = new Map();   // (SDK 9) the description; card -> canvas; card -> last points JSON
+    this.pageUrl = ''; this.pageOn = false; this.pageEl = null; this.pageFrames = false; this.pageVals = '';   // (SDK 16)
+    this.pageSw = h('div', 'ed-pagesw', side); this.pageSw.hidden = true;
+    for (const [k, l] of [['custom', 'CUSTOM'], ['standard', 'STANDARD']]) h('button', '', this.pageSw, l).addEventListener('click', () => this.pageMode(k === 'custom', true));
+    window.addEventListener('message', (e) => this.pageMsg(e));
   }
   get open() { return !this.el.hidden; }
 
@@ -41,13 +59,60 @@ export class Editor {
     if (!tabs.includes(this.tab)) this.tab = tabs[0] ?? '';
     this.tabs.textContent = '';
     if (tabs.length > 1) for (const t of tabs) {
-      const b = h('button', 'ed-tab' + (t === this.tab ? ' on' : ''), this.tabs, t || 'ALL'); b.type = 'button';
+      const b = h('button', 'ed-tab' + (t === this.tab ? ' on' : ''), this.tabs, t || 'ALL');
       b.addEventListener('click', () => { this.tab = t; this.reloadView(); [...this.tabs.children].forEach((c) => c.classList.toggle('on', c === b)); });
     }
     this.note.textContent = !list.length ? 'This firmware declares no parameters – play it in the device view.'
       : list.length <= 7 && list.every((p) => !p.group) ? 'A converted FM-1 firmware: its seven knobs. Its own pages are on the device view.'
       : `${list.length} parameters · drag (Shift: fine), wheel, double-click = default`;
     this.reloadView();
+    this.pageUrl = window.vibe_editor_page ? (await window.vibe_editor_page()) || '' : '';   // (SDK 16)
+    this.pageSw.hidden = !this.pageUrl;
+    let keep = null; try { keep = localStorage.getItem('vibe.edpage.' + this.pageUrl.split('/')[1]); } catch (e) { /* storage off */ }
+    this.pageMode(!!this.pageUrl && keep !== 'standard', false);
+  }
+  // (SDK 16) the firmware's own page, or the cards – the switch is always there (a page is never the only face)
+  pageMode(on, remember) {
+    on = on && !!this.pageUrl;
+    if (remember && this.pageUrl) try { localStorage.setItem('vibe.edpage.' + this.pageUrl.split('/')[1], on ? 'custom' : 'standard'); } catch (e) { /* storage off */ }
+    this.pageOn = on;
+    [...this.pageSw.children].forEach((b, k) => b.classList.toggle('on', k === (on ? 0 : 1)));
+    this.main.hidden = on; this.tabs.hidden = on;
+    if (on && (!this.pageEl || this.pageEl.dataset.url !== this.pageUrl)) {
+      if (this.pageEl) this.pageEl.remove();
+      this.pageEl = h('iframe', 'ed-page', this.el); this.pageEl.dataset.url = this.pageUrl;
+      this.pageEl.setAttribute('sandbox', 'allow-scripts');   // (no allow-same-origin: the page reaches nothing of ours)
+      this.pageEl.src = this.pageUrl; this.pageFrames = false; this.pageVals = '';
+    }
+    if (!on && this.pageEl) { this.pageEl.remove(); this.pageEl = null; this.pageFrames = false; }
+    if (this.open) { clearInterval(this.timer); this.timer = setInterval(() => this.poll(), on ? 50 : 120); }
+  }
+  toPage(m) { if (this.pageEl && this.pageEl.contentWindow) this.pageEl.contentWindow.postMessage(Object.assign({ vibe: 1 }, m), '*'); }
+  async pageMsg(e) {
+    if (!this.pageEl || e.source !== this.pageEl.contentWindow || !e.data || e.data.vibe !== 1) return;
+    const { op, args = [], id } = e.data, reply = (value) => this.toPage({ reply: id, value });
+    const tabs = [...new Set(this.params.map((p) => this.tabOf(p)))], card = (c) => this.ed?.curves?.indexOf(c) ?? -1;
+    if (op === 'hello') {
+      const cs = getComputedStyle(document.documentElement), acc = getComputedStyle(this.el).getPropertyValue('--ed-acc').trim();
+      const own = this.ed?.accent ? '#' + (this.ed.accent >>> 0).toString(16).padStart(6, '0') : '';
+      reply({ params: this.params.map(({ i, id, name, min, max, def, unit, steps, choices, group }) => ({ i, id, name, min, max, def, unit, steps, choices, group })),
+              values: this.params.map((p) => this.knobs.get(p.i)?.v ?? p.v), curves: this.ed?.curves || [], tabs,
+              theme: { bg: cs.getPropertyValue('--bg').trim(), fg: cs.getPropertyValue('--fg').trim(), muted: cs.getPropertyValue('--muted').trim(),
+                       line: cs.getPropertyValue('--line').trim(), accent: own || acc || '#FF60BE', font: getComputedStyle(document.body).fontFamily } });
+    } else if (op === 'set') { const p = this.params[args[0] | 0]; if (p && Number.isFinite(+args[1])) this.set(p, +args[1]); }
+    else if (op === 'curve') {
+      const i = card(String(args[0])); if (i < 0 || !window.vibe_editor_curve) { reply([]); return; }
+      let pts = [];
+      for (let k = 0; k < 8 && !pts.length; k++) { try { pts = JSON.parse(await window.vibe_editor_curve(i, String(args[1] || ''))); } catch (x) { pts = []; } if (!pts.length) await new Promise((r) => setTimeout(r, 25)); }
+      reply(pts);
+    } else if (op === 'draw') { const i = card(String(args[0])); if (i >= 0 && window.vibe_editor_curve_draw) window.vibe_editor_curve_draw(i, String(args[1] || ''), args[2] | 0, args[3] | 0, +args[4]); }
+    else if (op === 'send') {
+      const b = args[0] instanceof Uint8Array ? args[0] : null;
+      if (b && b.length && b.length <= 4096 && window.vibe_editor_send) { let s = ''; for (const x of b) s += String.fromCharCode(x); window.vibe_editor_send(btoa(s)); }
+    } else if (op === 'note') {
+      const n = args[0] | 0, v = Math.max(0, Math.min(127, Math.round(+args[1] * 127)));
+      if (n >= 0 && n < 128 && window.vibe_ev) window.vibe_ev(5, 0, 0, 0, (v ? 0x90 : 0x80) | (n << 8) | ((v || 64) << 16));   // (VIBE_EV_MIDI, as a keyboard's)
+    } else if (op === 'frames') this.pageFrames = !!args[0];
   }
   tabOf(p) { const g = p.group || ''; const k = g.indexOf(' · '); return k > 0 ? g.slice(0, k) : ''; }
   cardOf(p) { const g = p.group || ''; const k = g.indexOf(' · '); return (k > 0 ? g.slice(k + 3) : g) || 'PARAMETERS'; }
@@ -77,13 +142,23 @@ export class Editor {
     }
     const cards = new Map(), order = new Map();
     this.params.forEach((p, n) => { if (this.tabOf(p) === this.tab && !order.has(this.cardOf(p))) order.set(this.cardOf(p), n); });
+    for (const b of this.ed?.buttons || []) if (!order.has(b.card)) order.set(b.card, this.params.length + b.i);   // (SDK 15: a card of buttons only)
     const sorted = [...order.keys()].sort((a, b) => this.rank(a, order.get(a)) - this.rank(b, order.get(b)));
     for (const c of sorted) {
       const card = h('div', 'ed-card', this.main); h('h3', '', card, (this.tab ? this.tab + ' · ' : '') + c);
       const d = this.ed && this.ed.cards.find((x) => x.card === c);
       if (d) { card.style.gridColumn = `span ${d.width >= 1 && d.width <= 12 ? d.width : 4}`; if (d.note) h('p', 'ed-cnote', card, d.note); }
       else if (this.ed && this.ed.cards.length) card.style.gridColumn = 'span 4';
-      if (this.ed && this.ed.curves.includes(c)) { const cv = h('canvas', 'ed-curve', card); cv.width = 256; cv.height = 48; this.curves.set(c, cv); this.curveLast.delete(c); }
+      if (this.ed && this.ed.curves.includes(c)) {
+        const cv = h('canvas', 'ed-curve', card); cv.width = 256; cv.height = 48; this.curves.set(c, cv); this.curveLast.delete(c);
+        const ci = this.ed.curves.indexOf(c);
+        if (this.ed.draw?.[ci] && window.vibe_editor_curve_draw) this.drawable(cv, c, ci);
+      }
+      const btns = (this.ed?.buttons || []).filter((b) => b.card === c);
+      if (btns.length && window.vibe_editor_press) {   // (SDK 15) the firmware's buttons: VIBE_EV_EDITOR
+        const row = h('div', 'ed-btns', card);
+        for (const b of btns) h('button', 'ed-btn', row, b.label).addEventListener('click', () => window.vibe_editor_press(b.i, this.tab));
+      }
       cards.set(c, h('div', 'ed-ctrls', card));
     }
     let skip = -1;
@@ -100,15 +175,21 @@ export class Editor {
   }
   // (SDK 9) a card's curve: asked from the plugin, which makes it on the audio thread – polled until it answers,
   // again when a value of that card changed (the knobs' values are what we see; force: after a rebuild)
+  // 31.10.2026 (from Andrew GG's PR): one ask at a time – the plugin holds one request, so two curve cards asking in turn
+  // took it from each other and neither was ever made; a card not made yet ends the round, the next poll asks again
   async pollCurves(force) {
-    if (!this.ed || !this.curves.size || !window.vibe_editor_curve) return;
+    if (this.cBusy || !this.ed || !this.curves.size || !window.vibe_editor_curve) return;
+    this.cBusy = true;
+    try { await this.pollCurves1(force); } finally { this.cBusy = false; }
+  }
+  async pollCurves1(force) {
     for (const [c, cv] of this.curves) {
       const i = this.ed.curves.indexOf(c); if (i < 0) continue;
       const key = this.params.filter((p) => this.tabOf(p) === this.tab && this.cardOf(p) === c).map((p) => (this.knobs.get(p.i) || {}).v).join(',');
       const last = this.curveLast.get(c);
       if (!force && last && last.key === key && last.pts) continue;
       let pts; try { pts = JSON.parse(await window.vibe_editor_curve(i, this.tab)); } catch (e) { pts = []; }
-      if (!pts.length) { this.curveLast.set(c, { key, pts: null }); continue; }
+      if (!pts.length) { this.curveLast.set(c, { key, pts: null }); break; }
       const js = JSON.stringify(pts);
       if (last && last.js === js && last.pts) { last.key = key; continue; }
       this.curveLast.set(c, { key, pts, js });
@@ -119,21 +200,35 @@ export class Editor {
       g.lineTo(W - 2, H - 2); g.lineTo(2, H - 2); g.closePath(); g.fillStyle = acc + '33'; g.fill();
     }
   }
+  // (SDK 15) a curve the mouse draws: each point it passes goes to the firmware (vibe_editor_curve_draw – the points
+  // between two moves too, so a fast stroke leaves no gaps), then the curve is asked again (31.10.2026, an idea from
+  // Andrew GG's PR)
+  drawable(cv, card, ci) {
+    cv.classList.add('ed-draw');
+    let last = -1;
+    const at = (e) => {
+      const r = cv.getBoundingClientRect(), n = this.curveLast.get(card)?.pts?.length || 64;
+      const k = clp(Math.round((e.clientX - r.left) / r.width * (n - 1)), 0, n - 1), v = clp(1 - (e.clientY - r.top) / r.height, 0, 1);
+      for (let j = last < 0 ? k : last; ; j += j < k ? 1 : -1) { window.vibe_editor_curve_draw(ci, this.tab, j, n, v); if (j === k) break; }
+      last = k;
+      if (!this.drawRaf) this.drawRaf = requestAnimationFrame(() => { this.drawRaf = 0; this.curveLast.delete(card); this.pollCurves(true); });
+    };
+    drag(cv, (e, first) => { if (first) last = -1; at(e); }, () => { last = -1; this.curveLast.delete(card); this.pollCurves(true); });
+  }
   // (SDK 9) two parameters as one pad: X across, Y up
   xyPad(px, py, parent) {
     const box = h('div', 'ed-ctl ed-ctl-xy', parent);
     const pad = h('div', 'ed-xy', box), dot = h('div', 'ed-dot', pad);
     const lab = h('span', 'ed-lab', box, `${this.short(px)} × ${this.short(py)}`), out = h('span', 'ed-val', box);
     const help = this.ed.help && (this.ed.help[px.i] || this.ed.help[py.i]); if (help) box.title = help;
-    const norm = (p, v) => p.max > p.min ? (v - p.min) / (p.max - p.min) : 0;
     const kx = { p: px, v: px.v }, ky = { p: py, v: py.v };
-    const show = () => { dot.style.left = (norm(px, kx.v) * 100) + '%'; dot.style.top = ((1 - norm(py, ky.v)) * 100) + '%'; out.textContent = `${this.fmt(px, kx.v)} · ${this.fmt(py, ky.v)}`; };
+    const show = () => { dot.style.left = (nrm(px, kx.v) * 100) + '%'; dot.style.top = ((1 - nrm(py, ky.v)) * 100) + '%'; out.textContent = `${this.fmt(px, kx.v)} · ${this.fmt(py, ky.v)}`; };
     kx.update = (v) => { kx.v = v; show(); }; ky.update = (v) => { ky.v = v; show(); };
-    const at = (e) => { const r = pad.getBoundingClientRect(); const x = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)), y = Math.min(1, Math.max(0, 1 - (e.clientY - r.top) / r.height)); this.set(px, px.min + x * (px.max - px.min)); this.set(py, py.min + y * (py.max - py.min)); };
-    pad.addEventListener('pointerdown', (e) => { pad.setPointerCapture(e.pointerId); this.held = px.i; this.heldY = py.i; at(e); e.preventDefault(); });
-    pad.addEventListener('pointermove', (e) => { if (this.held === px.i) at(e); });
-    const up = () => { if (this.held === px.i) { this.held = -1; this.heldY = -1; } };
-    pad.addEventListener('pointerup', up); pad.addEventListener('pointercancel', up);
+    drag(pad, (e) => {
+      const r = pad.getBoundingClientRect(); this.held = px.i; this.heldY = py.i;
+      this.set(px, px.min + clp((e.clientX - r.left) / r.width, 0, 1) * (px.max - px.min));
+      this.set(py, py.min + clp(1 - (e.clientY - r.top) / r.height, 0, 1) * (py.max - py.min));
+    }, () => { this.held = -1; this.heldY = -1; });
     pad.addEventListener('dblclick', () => { this.set(px, px.def); this.set(py, py.def); });
     return [kx, ky];
   }
@@ -149,7 +244,7 @@ export class Editor {
     const short = this.short(p);
     if (this.ed && this.ed.help && this.ed.help[p.i]) box.title = this.ed.help[p.i];
     if (ctl === 2 && (p.steps === 2 || (p.choices && p.choices.length === 2))) {   // a toggle: one button, lit when on
-      const b = h('button', 'ed-tog', box, short); b.type = 'button';
+      const b = h('button', 'ed-tog', box, short);
       b.addEventListener('click', () => this.set(p, this.step(p, this.knobs.get(p.i)?.v ?? p.v) ? p.min : p.max));
       return { p, v: p.v, update: (v) => { const k = { p, v }; this.knobs.get(p.i) && (this.knobs.get(p.i).v = v); b.classList.toggle('on', this.step(p, v) > 0); b.textContent = short + ' · ' + this.fmt(p, v); void k; } };
     }
@@ -159,28 +254,34 @@ export class Editor {
       const r = h('input', 'ed-slider', box); r.type = 'range'; r.min = 0; r.max = 1000; r.step = 1;
       r.addEventListener('input', () => this.set(p, p.min + (+r.value / 1000) * (p.max - p.min)));
       r.addEventListener('dblclick', () => this.set(p, p.def));
-      const k = { p, v: p.v, update: (v) => { k.v = v; if (document.activeElement !== r) r.value = Math.round((p.max > p.min ? (v - p.min) / (p.max - p.min) : 0) * 1000); out.textContent = this.fmt(p, v); } };
+      const k = { p, v: p.v, update: (v) => { k.v = v; if (document.activeElement !== r) r.value = Math.round(nrm(p, v) * 1000); out.textContent = this.fmt(p, v); } };
       return k;
     }
     if (p.choices && p.choices.length) {
       h('span', 'ed-lab', box, short);
       if (p.choices.length <= 6 && ctl !== 3) {
         const row = h('div', 'ed-seg', box);
-        const btns = p.choices.map((c, k) => { const b = h('button', '', row, c); b.type = 'button'; b.addEventListener('click', () => this.set(p, p.min + k * (p.max - p.min) / Math.max(1, p.choices.length - 1))); return b; });
-        return { p, update: (v) => { const k = this.step(p, v); btns.forEach((b, n) => b.classList.toggle('on', n === k)); } };
+        const btns = p.choices.map((c, k) => { const b = h('button', '', row, c); b.addEventListener('click', () => this.set(p, p.min + k * (p.max - p.min) / Math.max(1, p.choices.length - 1))); return b; });
+        const k = { p, v: p.v, update: (v) => { k.v = v; const n = this.step(p, v); btns.forEach((b, j) => b.classList.toggle('on', j === n)); } };   // (31.10.: .v – a card's curve follows a choice, too)
+        return k;
       }
-      const sel = h('select', '', box); p.choices.forEach((c, k) => { const o = h('option', '', sel, c); o.value = k; });
-      sel.addEventListener('change', () => this.set(p, p.min + (+sel.value) * (p.max - p.min) / Math.max(1, p.choices.length - 1)));
-      return { p, update: (v) => { sel.value = this.step(p, v); } };
+      // a menu – with ◀ ▶ to step through it (a preset list: one click to the next); an empty name is its number and
+      // [INIT] (31.10.2026, from Andrew GG's PR)
+      const N = p.choices.length, to = (n) => this.set(p, p.min + clp(n, 0, N - 1) * (p.max - p.min) / Math.max(1, N - 1));
+      const nav = h('div', 'ed-nav', box), prev = h('button', 'ed-navb', nav, '◀'), sel = h('select', '', nav), next = h('button', 'ed-navb', nav, '▶');
+      p.choices.forEach((c, k) => { const o = h('option', '', sel, c || `${String(k + 1).padStart(2, '0')}: [INIT]`); o.value = k; });
+      sel.addEventListener('change', () => to(+sel.value));
+      prev.addEventListener('click', () => to(this.step(p, k.v) - 1)); next.addEventListener('click', () => to(this.step(p, k.v) + 1));
+      const k = { p, v: p.v, update: (v) => { k.v = v; sel.value = this.step(p, v); } };
+      return k;
     }
-    const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.setAttribute('viewBox', '0 0 64 64'); svg.classList.add('ed-knob'); box.appendChild(svg);
-    const arc = (cls) => { const a = document.createElementNS('http://www.w3.org/2000/svg', 'path'); a.setAttribute('class', cls); svg.appendChild(a); return a; };
-    const track = arc('trk'), val = arc('val'); track.setAttribute('d', this.arcPath(0, 1));
-    const dot = document.createElementNS('http://www.w3.org/2000/svg', 'line'); dot.setAttribute('class', 'ptr'); svg.appendChild(dot);
+    const svg = ns('svg', 'ed-knob', box); svg.setAttribute('viewBox', '0 0 64 64');
+    const track = ns('path', 'trk', svg), val = ns('path', 'val', svg); track.setAttribute('d', this.arcPath(0, 1));
+    const dot = ns('line', 'ptr', svg);
     h('span', 'ed-lab', box, short);
     const out = h('span', 'ed-val', box);
     const k = { p, v: p.v, update: (v) => {
-      k.v = v; const n = p.max > p.min ? (v - p.min) / (p.max - p.min) : 0;
+      k.v = v; const n = nrm(p, v);
       const z = (p.min < 0 && p.max > 0) || ctl === 4 ? (p.min < 0 && p.max > 0 ? -p.min / (p.max - p.min) : 0.5) : 0;      // (bipolar: the arc from the middle)
       val.setAttribute('d', this.arcPath(Math.min(z, n), Math.max(z, n)));
       const a = (-135 + 270 * n) * Math.PI / 180;
@@ -189,14 +290,10 @@ export class Editor {
       out.textContent = this.fmt(p, v);
     } };
     let y0 = 0, v0 = 0;
-    svg.addEventListener('pointerdown', (e) => { svg.setPointerCapture(e.pointerId); y0 = e.clientY; v0 = k.v; this.held = p.i; e.preventDefault(); });
-    svg.addEventListener('pointermove', (e) => {
-      if (this.held !== p.i) return;
-      const span = p.max - p.min, d = (y0 - e.clientY) / (e.shiftKey ? 900 : 180) * span;
-      this.set(p, v0 + d);
-    });
-    const up = () => { if (this.held === p.i) this.held = -1; };
-    svg.addEventListener('pointerup', up); svg.addEventListener('pointercancel', up);
+    drag(svg, (e, first) => {
+      if (first) { y0 = e.clientY; v0 = k.v; this.held = p.i; return; }
+      this.set(p, v0 + (y0 - e.clientY) / (e.shiftKey ? 900 : 180) * (p.max - p.min));
+    }, () => { this.held = -1; });
     svg.addEventListener('wheel', (e) => { e.preventDefault(); const st = p.steps > 1 ? (p.max - p.min) / (p.steps - 1) : (p.max - p.min) / 100; this.set(p, k.v - Math.sign(e.deltaY) * st * (e.shiftKey ? 1 : (p.steps > 32 ? 2 : 1))); }, { passive: false });
     svg.addEventListener('dblclick', () => this.set(p, p.def));
     return k;
@@ -233,11 +330,20 @@ export class Editor {
       if (i === this.held || i === this.heldY || now - (this.touched.get(i) || 0) < 400) continue;
       k.update(vals[i]);
     }
+    if (this.pageOn) {                                // (SDK 16) the values to the page when they changed; what the firmware posted
+      const js = vals.join(','); if (js !== this.pageVals) { this.pageVals = js; this.toPage({ op: 'values', args: [vals] }); }
+      if (window.vibe_editor_take) {
+        let got = []; try { got = JSON.parse(await window.vibe_editor_take()); } catch (e) { got = []; }
+        for (const b of got) { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); this.toPage({ op: 'data', args: [u] }); }
+      }
+      return;
+    }
     this.pollCurves(false);
   }
   // the device's picture (RGB565), small
   frame(fb) {
     if (!this.open) return;
+    if (this.pageOn && this.pageFrames) this.toPage({ op: 'frame', args: [fb.slice()] });   // (SDK 16: the page asked for the display)
     const d = this.img.data;
     for (let i = 0, j = 0; i < fb.length; i++, j += 4) { const v = fb[i]; d[j] = (v >> 8) & 0xF8; d[j + 1] = (v >> 3) & 0xFC; d[j + 2] = (v << 3) & 0xF8; d[j + 3] = 255; }
     this.ctx.putImageData(this.img, 0, 0);

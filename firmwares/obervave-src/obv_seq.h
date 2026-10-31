@@ -263,6 +263,7 @@ static void mx_swap_in(void)                    /* (ISR, inside the pattern swap
     ctl_mix_off = mx_q.off;
     ctl_dv_type = mx_q.dv_type; ctl_dv_amt = mx_q.dv_amt; ctl_dv_tone = mx_q.dv_tone; ctl_dv_mix = mx_q.dv_mix;
     ctl_m_vol = mx_q.m_vol; ctl_m_dj = mx_q.m_dj; ctl_m_drive = mx_q.m_drive; ctl_m_comp = mx_q.m_comp;
+    if (mx_q.tempo) ctl_tempo = mx_q.tempo;     /* (3.2) the pattern's tempo, from its first note */
     ctl_mx_swap = 0;
 }
 

@@ -284,6 +284,7 @@ static void note_in(uint32_t on, uint32_t note, uint32_t vel)
 typedef struct {
     uint8_t lvl[NTRK], cho[NTRK], dly[NTRK], rev[NTRK], drv[NTRK]; int8_t pan[NTRK];
     uint8_t mute, solo, fx[NFXP], dv_type, dv_amt, dv_tone, dv_mix, m_vol, m_dj, m_drive, m_comp;
+    uint8_t tempo;                              /* (3.2) the pattern's tempo, 40..240; 0 (an older set): the one playing stays */
 } mixset_t;
 typedef struct { uint32_t magic; uint8_t prog[NTRK], edited[NTRK]; patch_t p[NTRK]; mixset_t mx; } psnd_t;
 static psnd_t psnd[NPAT];
@@ -297,6 +298,7 @@ static void mx_from_set(mixset_t *m)
     for (uint32_t i = 0; i < NFXP; i++) m->fx[i] = set.fx[i];
     m->dv_type = set.dv_type; m->dv_amt = set.dv_amt; m->dv_tone = set.dv_tone; m->dv_mix = set.dv_mix;
     m->m_vol = set.m_vol; m->m_dj = set.m_dj; m->m_drive = set.m_drive; m->m_comp = set.m_comp;
+    m->tempo = set.tempo;
 }
 static void mx_to_set(const mixset_t *m)        /* into the settings and the engine */
 {
@@ -306,6 +308,7 @@ static void mx_to_set(const mixset_t *m)        /* into the settings and the eng
     set.fx_ok = FX_OK;
     set.dv_type = m->dv_type; set.dv_amt = m->dv_amt; set.dv_tone = m->dv_tone; set.dv_mix = m->dv_mix;
     set.m_vol = m->m_vol; set.m_dj = m->m_dj; set.m_drive = m->m_drive; set.m_comp = m->m_comp;
+    if (m->tempo >= 40u && m->tempo <= 240u) set.tempo = m->tempo;   /* (3.2) each pattern its tempo */
     mix_apply();
 }
 static void mx_prepare(uint32_t n)              /* pattern n's mixer, drive, master as the ISR takes them (mx_q) */
@@ -316,6 +319,7 @@ static void mx_prepare(uint32_t n)              /* pattern n's mixer, drive, mas
         for (t = 0; t < NTRK; t++) { mx_q.lvl[t] = ctl_mix_lvl[t]; mx_q.cho[t] = ctl_mix_cho[t]; mx_q.dly[t] = ctl_mix_dly[t]; mx_q.rev[t] = ctl_mix_rev[t]; mx_q.drv[t] = ctl_mix_drv[t]; mx_q.pan[t] = ctl_mix_pan[t]; }
         mx_q.off = ctl_mix_off; mx_q.dv_type = ctl_dv_type; mx_q.dv_amt = ctl_dv_amt; mx_q.dv_tone = ctl_dv_tone; mx_q.dv_mix = ctl_dv_mix;
         mx_q.m_vol = ctl_m_vol; mx_q.m_dj = ctl_m_dj; mx_q.m_drive = ctl_m_drive; mx_q.m_comp = ctl_m_comp;
+        mx_q.tempo = 0;
         return;
     }
     for (t = 0; t < NTRK; t++) {
@@ -327,6 +331,7 @@ static void mx_prepare(uint32_t n)              /* pattern n's mixer, drive, mas
     mx_q.off = solo ? ~solo & ((1u << NTRK) - 1u) : mute;
     mx_q.dv_type = s->mx.dv_type; mx_q.dv_amt = s->mx.dv_amt; mx_q.dv_tone = s->mx.dv_tone; mx_q.dv_mix = s->mx.dv_mix;
     mx_q.m_vol = s->mx.m_vol; mx_q.m_dj = s->mx.m_dj; mx_q.m_drive = s->mx.m_drive; mx_q.m_comp = s->mx.m_comp;
+    mx_q.tempo = s->mx.tempo >= 40u && s->mx.tempo <= 240u ? s->mx.tempo : 0;
 }
 static void snd_capture(uint32_t n)             /* what plays now into pattern n's set */
 {

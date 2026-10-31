@@ -23,6 +23,10 @@ function is documented where it is declared. When this file and a header disagre
    (`emulator/`, `tools/emulator.py`). That includes the binaries, their embedded HTML/JS/CSS and `emulator/js/*`. The
    Editor view is described by the firmware (`vibe_params`, `vibe_param_groups`, `vibe_editor` in `sdk/include/vibe.h`).
    If the host lacks something the firmware needs, stop and tell the user to open an issue in this repository.
+   An own Editor page (SDK 16, `EDITOR-PAGE.md`) belongs to the firmware: `editor/` in its folder, talking only through
+   `window.vibe` – the firmware must stay fully playable without it.
+9. **Give it a face:** an `icon.png` next to `firmware.json` (16:9, e.g. 960 × 540, up to 1 MB) – its tile in the VIBE's
+   main menu and its card in the hub. One strong motif that reads small; little or no text.
 
 ## The shape of a firmware
 

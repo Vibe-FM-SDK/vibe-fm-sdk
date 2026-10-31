@@ -299,6 +299,19 @@ body.editing .stage, body.editing #status, body.editing .cheat, body.editing #ch
 .ed-seg button { flex: 1; padding: 5px 2px; border-radius: 6px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 700 10px var(--mono); cursor: pointer; }
 .ed-seg button.on { background: #40E0D0; border-color: #40E0D0; color: #0d1012; }
 .ed-ctl select { margin-top: 3px; padding: 5px; border-radius: 6px; background: #1c1f24; color: var(--fg); border: 1px solid var(--line); font: 700 11px var(--mono); }
+.ed-nav { display: flex; gap: 3px; align-items: stretch; }   /* (31.10.) a menu with ◀ ▶ */
+.ed-nav select { flex: 1; min-width: 0; }
+.ed-navb { margin-top: 3px; padding: 0 8px; border-radius: 6px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 700 10px var(--mono); cursor: pointer; }
+.ed-navb:hover { border-color: var(--ed-acc, #FF60BE); }
+.ed-curve.ed-draw { cursor: crosshair; touch-action: none; }   /* (SDK 15) a curve to draw */
+.ed-page { width: 100%; height: 100%; min-height: 0; border: 0; border-radius: 10px; background: var(--bg); }   /* (SDK 16) the firmware's own page */
+.ed-pagesw { display: flex; gap: 3px; }
+.editor [hidden] { display: none !important; }   /* (the cards or the page – one of them) */
+.ed-pagesw button { flex: 1; padding: 6px 4px; border-radius: 6px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 700 10px var(--mono); cursor: pointer; letter-spacing: .06em; }
+.ed-pagesw button.on { background: var(--ed-acc, #FF60BE); border-color: var(--ed-acc, #FF60BE); color: #0d1012; }
+.ed-btns { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0; }
+.ed-btn { padding: 5px 10px; border-radius: 6px; border: 1px solid var(--ed-acc, #FF60BE); background: #1c1f24; color: var(--fg); font: 700 10px var(--mono); cursor: pointer; }
+.ed-btn:active { background: var(--ed-acc, #FF60BE); color: #0d1012; }
 /* SDK 9 (28.10.): the Editor as the firmware describes it – a 12-column grid, notes, curves, sliders, toggles, XY pads */
 .ed-main.ed-grid12 { grid-template-columns: repeat(12, minmax(0, 1fr)); }
 .ed-cnote { margin: -4px 0 8px; font: 400 11px/1.4 var(--sans); color: var(--muted); }

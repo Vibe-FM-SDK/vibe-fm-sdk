@@ -15,7 +15,7 @@
  *
  * The controls are 2.0's (OberVave 2.0's, git tag vor-aufraeumen-2026-10-22): F1 MIXER, F2 TRACKS, F3/F4 PRG -/+, F5 SAVE (SHIFT: HOLD), F6 GLOBAL
  * (SHIFT: UNDO); the colour keys SOUND ENV LFO ARP FX SEQ (SOUND in STEPS: clear the step); A track (STEPS: the step), B sound (STEPS: the note, TRACK: transpose), DATA
- * sound (STEPS: a bar; MIXER and the sequencer: the pattern; SHIFT: tempo); HOME PERFORM; MENU the overview; OCT -/+
+ * sound (STEPS: a bar; MIXER and the sequencer: the pattern; SHIFT: the F keys – SDK 12, the tempo is GLOBAL's); HOME PERFORM; MENU the overview; OCT -/+
  * the keys' octave; REC (held / SHIFT: clear the track), STOP, PLAY; pads: row 1 start/stop, row 2 the track, rows
  * 3-4 notes (MIXER: rows 2-3 mute, SHIFT solo, row 4 the track; STEPS: the 16 steps).
  */
@@ -179,7 +179,7 @@ void vibe_on_init(float sr)
     seq_boot();
     scope_state = 1;
     splash_unpack();
-    vibe_log("OberVave 3.1 (native VIBE)");
+    vibe_log("OberVave 3.2 (native VIBE)");
 }
 
 static void leave_seq_edit(void) { step_held = -1; audition_off(); entry_reset(); }
@@ -234,7 +234,7 @@ static void button(int id, int down)
     if (reset_ask) { reset_ask = 0; if (id == VB_ENTER || id == VB_DATA_PUSH) reset_all(); return; }   /* the question: ENTER = yes */
     if (id != VB_DATA_PUSH && id != VB_ENTER) save_armed = pat_save_armed = 0;
     switch (id) {
-    case VB_K1 + CK_SOUND: if (in_seq() && SV_ENTRY(seq_view) && !menu) seq_clear_cursor(); else go(cycle_page(PG_OSC1, 5)); break;
+    case VB_K1 + CK_SOUND: if (in_seq() && SV_ENTRY(seq_view) && !menu) seq_clear_cursor(); else go(cycle_page(PG_OSC1, 6)); break;
     case VB_K1 + CK_ENV: go(cycle_page(PG_FENV, 2)); break;
     case VB_K1 + CK_LFO: go(cycle_page(PG_LFO, 3)); break;
     case VB_K1 + CK_ARP: if (page == PG_ARP && !menu) { hold ^= 1u << sel; ctl_hold = hold; say(hold >> sel & 1u ? "HOLD ON" : "HOLD OFF"); } else go(PG_ARP); break;
@@ -244,7 +244,7 @@ static void button(int id, int down)
     case VB_F2: tracks_key(); break;
     case VB_F3: case VB_LEFT: prog_step(-1); break;
     case VB_F4: case VB_RIGHT: prog_step(1); break;
-    case VB_F6: if (shift) seq_undo(); else go(page == PG_GLOBAL ? PG_VOICE : page == PG_VOICE ? PG_OUTPUT : PG_GLOBAL); break;
+    case VB_F6: if (shift) seq_undo(); else go(page == PG_GLOBAL ? PG_OUTPUT : PG_GLOBAL); break;
     case VB_HOME: case VB_RETURN: go(PG_PERFORM); break;
     case VB_MENU: menu = !menu; break;
     case VB_ENTER: case VB_DATA_PUSH:
@@ -365,8 +365,8 @@ static void focus_press(int id)
 {
     if (id == FO_AREA) { int c = in_seq() ? CK_SEQ : key_lit(); c = c < 0 ? 0 : (c + 1) % 6; button(VB_K1 + c, 1); button(VB_K1 + c, 0); return; }
     if (id >= FO_CHIP && id < FO_CHIP + 8) {
-        static const uint8_t F6P[3] = {PG_GLOBAL, PG_VOICE, PG_OUTPUT};
-        const group_t *g = page_group(page); uint32_t i = (uint32_t)(id - FO_CHIP); go(g->key == 6 ? F6P[i % 3] : g->first + i);
+        static const uint8_t F6P[2] = {PG_GLOBAL, PG_OUTPUT};
+        const group_t *g = page_group(page); uint32_t i = (uint32_t)(id - FO_CHIP); go(g->key == 6 ? F6P[i % 2] : g->first + i);
     }
 }
 static void focus_items(void)                   /* (in the draw: where each one is shown) */
@@ -419,10 +419,10 @@ void vibe_on_event(const vibe_event *e)
 
 /* ---- the display */
 static const group_t *grp;
-static void group_chips(void)                   /* the colour key's pages, the open one bright (F6: GLOBAL, VOICE, OUTPUT) */
+static void group_chips(void)                   /* the colour key's pages, the open one bright (F6: GLOBAL, OUTPUT) */
 {
-    static const uint8_t F6P[3] = {PG_GLOBAL, PG_VOICE, PG_OUTPUT};
-    uint32_t n = grp->key == 6 ? 3u : grp->count;
+    static const uint8_t F6P[2] = {PG_GLOBAL, PG_OUTPUT};
+    uint32_t n = grp->key == 6 ? 2u : grp->count;
     if (n < 2) return;
     int w = (CW + 6) / (int)n;
     for (uint32_t i = 0; i < n; i++) {
@@ -486,8 +486,8 @@ static void global_view(void)
         vg_text(k[i].label, CX0 + 44, y + 4, VG_MED, FG, VG_LEFT);
         vg_text(k[i].value, CX0 + 170, y, VG_BIG, i == 1 && set.click % NCLICK ? ACCENT : 0x3FA9F5, VG_LEFT);
     }
-    vg_text("F6: VOICE, OUTPUT", 466, 136, VG_MED, MUTED, VG_RIGHT);
-    vg_text("SHIFT+DATA: tempo", 466, 172, VG_MED, MUTED, VG_RIGHT);
+    vg_text("F6: OUTPUT", 466, 136, VG_MED, MUTED, VG_RIGHT);
+    vg_text("SHIFT+DATA: F keys", 466, 172, VG_MED, MUTED, VG_RIGHT);
     vg_text("SHIFT+ENTER: RESET", 466, 208, VG_MED, MUTED, VG_RIGHT);
     vg_text("DATA: MIDI out", 466, 244, VG_MED, MUTED, VG_RIGHT);
 }
