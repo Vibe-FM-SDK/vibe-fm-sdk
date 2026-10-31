@@ -177,6 +177,8 @@ class VibeHost extends AudioWorkletProcessor {
         }
         if (this.mix.length) send({ t: 'mixer', params: this.mix });
       }
+      this.edText = text; this.edDescribe(send);       // (SDK 8–16) the Editor in the browser: what the plugin reads
+
     } catch (e) { send({ t: 'crash', error: String(e && e.message || e) }); }
     this.port.onmessage = (m) => {
       const d = m.data; if (!this.ok) return;
@@ -194,7 +196,22 @@ class VibeHost extends AudioWorkletProcessor {
         else if (d.t === 'msrc') this.media.sources(d.list);   // SDK 13: the page's folders
         else if (d.t === 'mres' || d.t === 'mack' || d.t === 'mdone') { this.media.answer(d); this.mediaEvents(); }   // a file dropped onto the device (music for PLAYER), already in IndexedDB
         else if (d.t === 'cvin') { if (this.rear) new Float32Array(this.x.memory.buffer, this.rear, 6)[2] = d.volts; }
-        else if (d.t === 'pset') { if (this.x.vibe_wasm_param_set) this.x.vibe_wasm_param_set(d.i, d.v); }   // (SDK 11) a mixer controller
+        else if (d.t === 'pset') { if (this.x.vibe_wasm_param_set) this.x.vibe_wasm_param_set(d.i, d.v); }   // (SDK 11) a mixer controller; the Editor
+        else if (d.t === 'edwant') this.edWant = !!d.on;  // (the Editor is open: values and posts with every picture)
+        else if (d.t === 'curve') {                        // (SDK 9) a card's curve – answered at once (the browser has one flow)
+          let pts = [];
+          if (this.x.vibe_wasm_editor_curve && this.x.vibe_wasm_editor_points) {
+            const n = this.x.vibe_wasm_editor_curve(d.i, this.edTab(d.tab));
+            if (n >= 2) pts = Array.from(new Float32Array(this.x.memory.buffer, this.x.vibe_wasm_editor_points(), Math.min(64, n)));
+          }
+          this.port.postMessage({ t: 'curveR', id: d.id, pts });
+        }
+        else if (d.t === 'cdraw') { if (this.x.vibe_wasm_editor_curve_draw) this.x.vibe_wasm_editor_curve_draw(d.i, this.edTab(d.tab), d.point, d.count, d.value); }   // (SDK 15)
+        else if (d.t === 'press') { if (this.x.vibe_wasm_editor_press) this.x.vibe_wasm_editor_press(d.i, this.edTab(d.tab)); }
+        else if (d.t === 'eddata') {                       // (SDK 16) bytes from the firmware's own page
+          const b = d.bytes, x = this.x;
+          if (x.vibe_wasm_editor_inbox && x.vibe_wasm_editor_data_in && b.length && b.length <= 4096) { new Uint8Array(x.memory.buffer, x.vibe_wasm_editor_inbox(), b.length).set(b); x.vibe_wasm_editor_data_in(b.length); }
+        }
         else if (d.t === 'draw') {
           this.lastDraw = currentTime; this.mediaEvents();
           const fbp = this.x.vibe_wasm_draw();
@@ -203,10 +220,55 @@ class VibeHost extends AudioWorkletProcessor {
           const rear = this.rear ? Array.from(new Float32Array(this.x.memory.buffer, this.rear, 6)) : null;
           const labels = this.x.vibe_wasm_labels ? new Uint8Array(this.x.memory.buffer, this.x.vibe_wasm_labels(), 25 * 8).slice() : null;   // SDK 2 (18.10.): button captions
           const mixv = this.mix && this.mix.length ? this.mix.map((m) => this.x.vibe_wasm_param_value(m.i)) : null;   // (SDK 11: for the controller's LEDs and faders)
-          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv }, labels ? [fb.buffer, leds.buffer, labels.buffer] : [fb.buffer, leds.buffer]);
+          let pv = null, posts = null;                     // (the Editor: every value, and what the firmware posted to its page)
+          if (this.edWant && this.edN) {
+            pv = []; for (let i = 0; i < this.edN; i++) pv.push(this.x.vibe_wasm_param_value(i));
+            if (this.x.vibe_wasm_editor_outbox) {
+              const o = this.x.vibe_wasm_editor_outbox(), dv = new DataView(this.x.memory.buffer), n = dv.getUint32(o, true);
+              if (n > 0 && n <= 4096) { posts = [new Uint8Array(this.x.memory.buffer, o + 4, n).slice()]; dv.setUint32(o, 0, true); }
+            }
+          }
+          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts }, labels ? [fb.buffer, leds.buffer, labels.buffer] : [fb.buffer, leds.buffer]);
         }
       } catch (e) { this.crash(e); }
     };
+  }
+  // the Editor's description, as the plugin reads it (Protokoll 9.2–9.3): the parameters with their groups and choices,
+  // the cards, controls, colours, help, curves, drawable curves, buttons – one message after init ('eddesc')
+  edDescribe(send) {
+    const x = this.x; this.edN = 0;
+    if (!x.vibe_wasm_param_count || !x.vibe_wasm_param_info) { send({ t: 'eddesc', params: [], editor: null }); return; }
+    const dv = () => new DataView(x.memory.buffer), u8 = () => new Uint8Array(x.memory.buffer);
+    const cstr = (p, max = 256) => { if (!p) return ''; const b = u8(); let e = p; while (b[e] && e - p < max) e++; return this.edText(p, e - p); };
+    const params = [];
+    for (let i = 0, n = x.vibe_wasm_param_count(); i < n && i < 256; i++) {
+      const q = x.vibe_wasm_param_info(i); if (!q) continue; const d = dv();
+      const steps = d.getInt32(q + 24, true), cp = d.getUint32(q + 28, true), choices = [];
+      if (cp && steps > 0) for (let k = 0; k < steps && k < 128; k++) choices.push(cstr(d.getUint32(cp + 4 * k, true), 40));
+      params.push({ i, id: cstr(d.getUint32(q, true), 40), name: cstr(d.getUint32(q + 4, true), 40), min: d.getFloat32(q + 8, true), max: d.getFloat32(q + 12, true),
+                    def: d.getFloat32(q + 16, true), unit: cstr(d.getUint32(q + 20, true), 16), steps, choices,
+                    group: x.vibe_wasm_param_group ? cstr(x.vibe_wasm_param_group(i), 40) : '', v: x.vibe_wasm_param_value(i) });
+    }
+    this.edN = params.length;
+    let editor = null;
+    const ed = x.vibe_wasm_editor ? x.vibe_wasm_editor() : 0;
+    if (ed) {
+      const d = dv(), cards = [], tabs = {}, help = [], curves = [], draw = [], buttons = [];
+      const cp = d.getUint32(ed + 4, true), nc = d.getInt32(ed + 8, true), ctl = d.getUint32(ed + 12, true), tp = d.getUint32(ed + 20, true), nt = d.getInt32(ed + 24, true), hp = d.getUint32(ed + 28, true), ncv = d.getInt32(ed + 32, true);
+      for (let i = 0; i < nc && i < 64 && cp; i++) { const c = cp + i * 12, name = cstr(d.getUint32(c, true), 40); if (name) cards.push({ card: name, width: d.getInt32(c + 4, true), note: cstr(d.getUint32(c + 8, true), 120) }); }
+      for (let i = 0; i < nt && i < 8 && tp; i++) tabs[cstr(d.getUint32(tp + i * 8, true), 31)] = d.getUint32(tp + i * 8 + 4, true) & 0xFFFFFF;
+      if (hp) for (let i = 0; i < params.length; i++) help.push(cstr(d.getUint32(hp + 4 * i, true), 120));
+      for (let i = 0; i < ncv && i < 16; i++) { curves.push(x.vibe_wasm_editor_curve_card ? cstr(x.vibe_wasm_editor_curve_card(i), 40) : ''); draw.push(x.vibe_wasm_editor_curve_drawable && x.vibe_wasm_editor_curve_drawable(i) ? 1 : 0); }
+      const nb = x.vibe_wasm_editor_buttons ? x.vibe_wasm_editor_buttons() : 0;
+      for (let i = 0; i < nb && i < 16; i++) { const q = x.vibe_wasm_editor_button(i); if (!q) continue; const card = cstr(dv().getUint32(q, true), 40), label = cstr(dv().getUint32(q + 4, true), 15); if (card && label) buttons.push({ card, label, i }); }
+      editor = { cards, controls: ctl ? Array.from(u8().slice(ctl, ctl + params.length)) : [], accent: d.getUint32(ed + 16, true) & 0xFFFFFF, tabs, help, curves, draw, buttons };
+    }
+    send({ t: 'eddesc', params, editor });
+  }
+  edTab(tab) {                                         // (the tab's name into the firmware's buffer – its address, 0 = none)
+    const x = this.x; if (!tab || !x.vibe_wasm_editor_tabbuf) return 0;
+    const p = x.vibe_wasm_editor_tabbuf(), b = new TextEncoder().encode(String(tab)).slice(0, 31), m = new Uint8Array(x.memory.buffer, p, 32);
+    m.set(b); m[b.length] = 0; return p;
   }
   mediaEvents() { const m = this.media; if (m.ready && m.asked) { m.ready = false; m.ev.push([2, 1, 0]); } if (!m.ev.length) return; const ev = m.ev; m.ev = []; for (const [id, down, v] of ev) this.x.vibe_wasm_event(12, id, down, v, 0); }   // SDK 13: VIBE_EV_MEDIA
   crash(e) { this.ok = false; this.port.postMessage({ t: 'crash', error: String(e && e.message || e) }); }

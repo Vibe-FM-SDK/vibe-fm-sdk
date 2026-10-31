@@ -24,7 +24,10 @@ const drag = (el, fn, up) => {
 };
 
 export class Editor {
-  constructor() {
+  // b: the bindings – the plugin's (window: vibe_params, vibe_param_set, vibe_editor_* …) or the browser's (host.js,
+  // the same names answered by the worklet, 31.10.2026)
+  constructor(b = window) {
+    this.b = b;
     this.el = h('section', 'editor', document.body); this.el.hidden = true;
     const side = this.side = h('div', 'ed-side', this.el);
     this.canvas = h('canvas', 'ed-disp', side); this.canvas.width = 480; this.canvas.height = 320;
@@ -50,10 +53,10 @@ export class Editor {
   // the firmware changed (or the Editor opened): its list again
   async reload() {
     let list = [];
-    try { list = JSON.parse(await window.vibe_params()); } catch (e) { list = []; }
+    try { list = JSON.parse(await this.b.vibe_params()); } catch (e) { list = []; }
     this.params = list;
     this.ed = null;
-    if (window.vibe_editor) { try { const d = JSON.parse(await window.vibe_editor()); if (d && d.cards) this.ed = d; } catch (e) { this.ed = null; } }
+    if (this.b.vibe_editor) { try { const d = JSON.parse(await this.b.vibe_editor()); if (d && d.cards) this.ed = d; } catch (e) { this.ed = null; } }
     const tabs = [];
     for (const p of list) { const t = this.tabOf(p); if (!tabs.includes(t)) tabs.push(t); }
     if (!tabs.includes(this.tab)) this.tab = tabs[0] ?? '';
@@ -66,7 +69,7 @@ export class Editor {
       : list.length <= 7 && list.every((p) => !p.group) ? 'A converted FM-1 firmware: its seven knobs. Its own pages are on the device view.'
       : `${list.length} parameters · drag (Shift: fine), wheel, double-click = default`;
     this.reloadView();
-    this.pageUrl = window.vibe_editor_page ? (await window.vibe_editor_page()) || '' : '';   // (SDK 16)
+    this.pageUrl = this.b.vibe_editor_page ? (await this.b.vibe_editor_page()) || '' : '';   // (SDK 16)
     this.pageSw.hidden = !this.pageUrl;
     let keep = null; try { keep = localStorage.getItem('vibe.edpage.' + this.pageUrl.split('/')[1]); } catch (e) { /* storage off */ }
     this.pageMode(!!this.pageUrl && keep !== 'standard', false);
@@ -101,17 +104,17 @@ export class Editor {
                        line: cs.getPropertyValue('--line').trim(), accent: own || acc || '#FF60BE', font: getComputedStyle(document.body).fontFamily } });
     } else if (op === 'set') { const p = this.params[args[0] | 0]; if (p && Number.isFinite(+args[1])) this.set(p, +args[1]); }
     else if (op === 'curve') {
-      const i = card(String(args[0])); if (i < 0 || !window.vibe_editor_curve) { reply([]); return; }
+      const i = card(String(args[0])); if (i < 0 || !this.b.vibe_editor_curve) { reply([]); return; }
       let pts = [];
-      for (let k = 0; k < 8 && !pts.length; k++) { try { pts = JSON.parse(await window.vibe_editor_curve(i, String(args[1] || ''))); } catch (x) { pts = []; } if (!pts.length) await new Promise((r) => setTimeout(r, 25)); }
+      for (let k = 0; k < 8 && !pts.length; k++) { try { pts = JSON.parse(await this.b.vibe_editor_curve(i, String(args[1] || ''))); } catch (x) { pts = []; } if (!pts.length) await new Promise((r) => setTimeout(r, 25)); }
       reply(pts);
-    } else if (op === 'draw') { const i = card(String(args[0])); if (i >= 0 && window.vibe_editor_curve_draw) window.vibe_editor_curve_draw(i, String(args[1] || ''), args[2] | 0, args[3] | 0, +args[4]); }
+    } else if (op === 'draw') { const i = card(String(args[0])); if (i >= 0 && this.b.vibe_editor_curve_draw) this.b.vibe_editor_curve_draw(i, String(args[1] || ''), args[2] | 0, args[3] | 0, +args[4]); }
     else if (op === 'send') {
       const b = args[0] instanceof Uint8Array ? args[0] : null;
-      if (b && b.length && b.length <= 4096 && window.vibe_editor_send) { let s = ''; for (const x of b) s += String.fromCharCode(x); window.vibe_editor_send(btoa(s)); }
+      if (b && b.length && b.length <= 4096 && this.b.vibe_editor_send) { let s = ''; for (const x of b) s += String.fromCharCode(x); this.b.vibe_editor_send(btoa(s)); }
     } else if (op === 'note') {
       const n = args[0] | 0, v = Math.max(0, Math.min(127, Math.round(+args[1] * 127)));
-      if (n >= 0 && n < 128 && window.vibe_ev) window.vibe_ev(5, 0, 0, 0, (v ? 0x90 : 0x80) | (n << 8) | ((v || 64) << 16));   // (VIBE_EV_MIDI, as a keyboard's)
+      if (n >= 0 && n < 128 && this.b.vibe_ev) this.b.vibe_ev(5, 0, 0, 0, (v ? 0x90 : 0x80) | (n << 8) | ((v || 64) << 16));   // (VIBE_EV_MIDI, as a keyboard's)
     } else if (op === 'frames') this.pageFrames = !!args[0];
   }
   tabOf(p) { const g = p.group || ''; const k = g.indexOf(' · '); return k > 0 ? g.slice(0, k) : ''; }
@@ -152,12 +155,12 @@ export class Editor {
       if (this.ed && this.ed.curves.includes(c)) {
         const cv = h('canvas', 'ed-curve', card); cv.width = 256; cv.height = 48; this.curves.set(c, cv); this.curveLast.delete(c);
         const ci = this.ed.curves.indexOf(c);
-        if (this.ed.draw?.[ci] && window.vibe_editor_curve_draw) this.drawable(cv, c, ci);
+        if (this.ed.draw?.[ci] && this.b.vibe_editor_curve_draw) this.drawable(cv, c, ci);
       }
       const btns = (this.ed?.buttons || []).filter((b) => b.card === c);
-      if (btns.length && window.vibe_editor_press) {   // (SDK 15) the firmware's buttons: VIBE_EV_EDITOR
+      if (btns.length && this.b.vibe_editor_press) {   // (SDK 15) the firmware's buttons: VIBE_EV_EDITOR
         const row = h('div', 'ed-btns', card);
-        for (const b of btns) h('button', 'ed-btn', row, b.label).addEventListener('click', () => window.vibe_editor_press(b.i, this.tab));
+        for (const b of btns) h('button', 'ed-btn', row, b.label).addEventListener('click', () => this.b.vibe_editor_press(b.i, this.tab));
       }
       cards.set(c, h('div', 'ed-ctrls', card));
     }
@@ -178,7 +181,7 @@ export class Editor {
   // 31.10.2026 (from Andrew GG's PR): one ask at a time – the plugin holds one request, so two curve cards asking in turn
   // took it from each other and neither was ever made; a card not made yet ends the round, the next poll asks again
   async pollCurves(force) {
-    if (this.cBusy || !this.ed || !this.curves.size || !window.vibe_editor_curve) return;
+    if (this.cBusy || !this.ed || !this.curves.size || !this.b.vibe_editor_curve) return;
     this.cBusy = true;
     try { await this.pollCurves1(force); } finally { this.cBusy = false; }
   }
@@ -188,7 +191,7 @@ export class Editor {
       const key = this.params.filter((p) => this.tabOf(p) === this.tab && this.cardOf(p) === c).map((p) => (this.knobs.get(p.i) || {}).v).join(',');
       const last = this.curveLast.get(c);
       if (!force && last && last.key === key && last.pts) continue;
-      let pts; try { pts = JSON.parse(await window.vibe_editor_curve(i, this.tab)); } catch (e) { pts = []; }
+      let pts; try { pts = JSON.parse(await this.b.vibe_editor_curve(i, this.tab)); } catch (e) { pts = []; }
       if (!pts.length) { this.curveLast.set(c, { key, pts: null }); break; }
       const js = JSON.stringify(pts);
       if (last && last.js === js && last.pts) { last.key = key; continue; }
@@ -209,7 +212,7 @@ export class Editor {
     const at = (e) => {
       const r = cv.getBoundingClientRect(), n = this.curveLast.get(card)?.pts?.length || 64;
       const k = clp(Math.round((e.clientX - r.left) / r.width * (n - 1)), 0, n - 1), v = clp(1 - (e.clientY - r.top) / r.height, 0, 1);
-      for (let j = last < 0 ? k : last; ; j += j < k ? 1 : -1) { window.vibe_editor_curve_draw(ci, this.tab, j, n, v); if (j === k) break; }
+      for (let j = last < 0 ? k : last; ; j += j < k ? 1 : -1) { this.b.vibe_editor_curve_draw(ci, this.tab, j, n, v); if (j === k) break; }
       last = k;
       if (!this.drawRaf) this.drawRaf = requestAnimationFrame(() => { this.drawRaf = 0; this.curveLast.delete(card); this.pollCurves(true); });
     };
@@ -318,12 +321,12 @@ export class Editor {
     const k = this.knobs.get(p.i); if (k) k.update(v);
     this.touched.set(p.i, performance.now());
     this.pending.set(p.i, v);
-    if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; for (const [i, x] of this.pending) window.vibe_param_set(i, x); this.pending.clear(); });
+    if (!this.raf) this.raf = requestAnimationFrame(() => { this.raf = 0; for (const [i, x] of this.pending) this.b.vibe_param_set(i, x); this.pending.clear(); });
   }
   // the values now (the panel, a preset, the DAW's automation): the knobs follow – not the one in your hand
   async poll() {
     if (!this.open) return;
-    let vals; try { vals = JSON.parse(await window.vibe_param_values()); } catch (e) { return; }
+    let vals; try { vals = JSON.parse(await this.b.vibe_param_values()); } catch (e) { return; }
     if (vals.length !== this.params.length) { this.reload(); return; }
     const now = performance.now();
     for (const [i, k] of this.knobs) {
@@ -332,8 +335,8 @@ export class Editor {
     }
     if (this.pageOn) {                                // (SDK 16) the values to the page when they changed; what the firmware posted
       const js = vals.join(','); if (js !== this.pageVals) { this.pageVals = js; this.toPage({ op: 'values', args: [vals] }); }
-      if (window.vibe_editor_take) {
-        let got = []; try { got = JSON.parse(await window.vibe_editor_take()); } catch (e) { got = []; }
+      if (this.b.vibe_editor_take) {
+        let got = []; try { got = JSON.parse(await this.b.vibe_editor_take()); } catch (e) { got = []; }
         for (const b of got) { const s = atob(b), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); this.toPage({ op: 'data', args: [u] }); }
       }
       return;

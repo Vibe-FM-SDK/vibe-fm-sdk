@@ -32,6 +32,11 @@ for n in sorted(os.listdir(BUILD)) if os.path.isdir(BUILD) else []:
     if any(f['id'] == i for f in lib): continue   # (your own build of OberVave: build/obervave-src.wasm, listed below)
     meta = json.load(open(card, encoding='utf-8')) if os.path.exists(card) else {}
     shutil.copyfile(os.path.join(BUILD, n), os.path.join(fw, n))
+    ed, edto = os.path.join(BUILD, i + '.editor'), os.path.join(fw, i + '.editor')   # (SDK 16: its own Editor page, EDITOR-PAGE.md)
+    shutil.rmtree(edto, ignore_errors=True)
+    if os.path.isfile(os.path.join(ed, 'index.html')):
+        shutil.copytree(ed, edto)
+        if not os.path.exists(os.path.join(edto, 'vibe-editor.js')): shutil.copyfile(os.path.join(EMU, 'js', 'vibe-editor.js'), os.path.join(edto, 'vibe-editor.js'))
     lib.append({'id': i, 'file': 'firmware/' + n, 'name': meta.get('name', i.upper()), 'version': meta.get('version', ''),
                 'author': meta.get('author', ''), 'description': meta.get('description', ''), 'license': meta.get('license', ''),
                 'order': len(lib)})
@@ -41,9 +46,17 @@ CT = os.path.join(ROOT, 'controllers')
 profiles = [json.load(open(os.path.join(CT, n), encoding='utf-8')) for n in sorted(os.listdir(CT)) if n.endswith('.json')] if os.path.isdir(CT) else []
 json.dump(profiles, open(os.path.join(EMU, 'controllers.json'), 'w', encoding='utf-8'), ensure_ascii=False)
 print('firmwares:', ', '.join(f['id'] for f in lib))
+# a firmware's own Editor page runs sandboxed (its own, empty origin): the same Content-Security-Policy as in VIBE FM VST
+# (its own files only, no network), and its files may be loaded by it (CORP – the page is cross-origin isolated)
+PAGE_CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; "
+            "font-src 'self' data:; media-src 'self' data: blob:; connect-src 'none'; frame-src 'none'; worker-src 'none'; "
+            "object-src 'none'; form-action 'none'; base-uri 'none'")
 class H(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Cross-Origin-Opener-Policy', 'same-origin'); self.send_header('Cross-Origin-Embedder-Policy', 'require-corp')
+        if '.editor/' in self.path:
+            self.send_header('Cross-Origin-Resource-Policy', 'cross-origin')
+            if self.path.split('?')[0].endswith('.html'): self.send_header('Content-Security-Policy', PAGE_CSP)
         self.send_header('Cache-Control', 'no-cache'); super().end_headers()
     def log_message(self, *a): pass
 port = int(sys.argv[1]) if len(sys.argv) > 1 else 8766

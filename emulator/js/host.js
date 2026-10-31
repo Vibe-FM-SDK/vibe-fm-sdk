@@ -104,7 +104,9 @@ function onMessage(d) {
     running = true; ctl.sdk = d.sdk; status((current.name || 'Firmware') + ' running · VIBE SDK ' + d.sdk);
     node.port.postMessage({ t: 'cvin', volts: +rear.cvKnob.value });
   }
-  else if (d.t === 'frame') { framePending = false; panel.showFrame(new Uint16Array(d.fb)); panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds); if (d.mixv) ctl.mixValues(d.mixv, d.leds); rear.show(d.rear); }
+  else if (d.t === 'eddesc') edDescribed(d);         // (the Editor in the browser, 31.10.)
+  else if (d.t === 'curveR') { const r = edWait.get(d.id); edWait.delete(d.id); if (r) r(JSON.stringify(d.pts)); }
+  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds); if (d.mixv) ctl.mixValues(d.mixv, d.leds); rear.show(d.rear); }
   else if (d.t === 'mixer') ctl.setMixer(d.params);   // (SDK 11) the firmware's mix_* parameters
   else if (d.t === 'log') console.log('[firmware]', d.text);
   else if (d.t === 'midi') ctl.midiOut(d.msgs, ctx);   // (SDK 9) the firmware's MIDI out – to the chosen Web MIDI port
@@ -534,6 +536,56 @@ window.addEventListener('resize', () => panel.fitBig());
 $('#tb-help').addEventListener('click', () => $('#help').showModal());
 $('#help-close').addEventListener('click', () => $('#help').close());
 $('#tb-full').addEventListener('click', () => { if (!document.fullscreenElement) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); });
+// the Editor view (27.10.; the browser too since 31.10.2026): b = its bindings – the plugin's (window) or the browser's (edB)
+function editorSetup(b, key) {
+  editor = new Editor(b);
+  const ED_KEY = key; { const o = $('#tb-view option[value=editor]'); o.hidden = false; o.disabled = false; }
+  setEd = (on) => { document.body.classList.toggle('editing', on);
+    editor.show(on); if (on && lastFb) editor.frame(lastFb); if (!PLUGIN && node) node.port.postMessage({ t: 'edwant', on });
+    try { localStorage.setItem(ED_KEY, on ? '1' : '0'); } catch (e) { /* storage off */ } if (!on) fit(); markView(); };
+  // the Editor is for native firmwares (their parameters in groups, or more than a converted FM-1 firmware's handful
+  // of knobs): for the others it is greyed out, and a view on it goes to Rack (27.10.)
+  checkEditor = async () => {
+    let ok = false;
+    try { const l = JSON.parse(await b.vibe_params()); ok = l.some((p) => p.group) || l.length > 7; } catch (e) { ok = false; }
+    const o = $('#tb-view option[value=editor]'); o.disabled = !ok; o.textContent = ok ? 'Editor' : 'Editor (native firmwares)';
+    if (!ok && editor.open) { setEd(false); setBox(true); }
+    return ok;
+  };
+  let e0 = null; try { e0 = localStorage.getItem(ED_KEY); } catch (e) { /* storage off */ }
+  checkEditor().then((ok) => { if (ok && e0 === '1') setEd(true); });
+}
+// the browser's answers to the Editor, by the plugin's names – from the worklet: the description once ('eddesc'), the
+// values and the firmware's posts with every picture, a curve on asking ('curveR'); a page next to the .wasm
+// (firmware/<id>.editor/index.html: tools/build.sh puts it there)
+let edDesc = { params: [], editor: null }, edVals = [], edPosts = [], edPage = '', edSeq = 0;
+const edWait = new Map();
+const edPost = (m) => { if (node && running) node.port.postMessage(m); };
+const edB = {
+  vibe_params: async () => JSON.stringify(edDesc.params.map((p, i) => Object.assign({}, p, { v: edVals[i] ?? p.v }))),
+  vibe_param_values: async () => JSON.stringify(edVals.length ? edVals : edDesc.params.map((p) => p.v)),
+  vibe_param_set: (i, v) => { edVals[i] = v; edPost({ t: 'pset', i, v }); },
+  vibe_editor: async () => JSON.stringify(edDesc.editor),
+  vibe_editor_curve: (i, tab) => new Promise((res) => { if (!node || !running) { res('[]'); return; } const id = ++edSeq; edWait.set(id, res); node.port.postMessage({ t: 'curve', i, tab, id }); }),
+  vibe_editor_curve_draw: (i, tab, point, count, value) => edPost({ t: 'cdraw', i, tab, point, count, value }),
+  vibe_editor_press: (i, tab) => edPost({ t: 'press', i, tab }),
+  vibe_editor_page: async () => edPage,
+  vibe_editor_send: (b64) => { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); edPost({ t: 'eddata', bytes: u }); },
+  vibe_editor_take: async () => { const r = edPosts.map((u) => { let s = ''; for (const x of u) s += String.fromCharCode(x); return btoa(s); }); edPosts = []; return JSON.stringify(r); },
+  vibe_ev: (type, id, down, value, midi) => send(type, id, !!down, value, midi),
+};
+async function edDescribed(d) {                      // (a firmware started: its description, its page – if it has one)
+  edDesc = { params: d.params || [], editor: d.editor }; edVals = edDesc.params.map((p) => p.v); edPosts = [];
+  edPage = '';
+  const f = current && current.file;
+  if (f && /\.wasm(\?|$)/.test(f)) {
+    const url = f.replace(/\.wasm(\?.*)?$/, '.editor/index.html');
+    try { const r = await fetch(url, { method: 'HEAD', cache: 'no-cache' }); if (r.ok) edPage = url + '?v=' + Date.now(); } catch (e) { /* no page */ }
+  }
+  if (checkEditor && await checkEditor() && editor.open) { node.port.postMessage({ t: 'edwant', on: true }); editor.reload(); }
+}
+if (!PLUGIN && !REMOTE) editorSetup(edB, 'vibe.browser.editor');
+
 if (PLUGIN) pluginMode(); else if (REMOTE) remote(); else loadLibrary();
 window.__vibe = { panel, rear, ctl, get node() { return node; }, get ctx() { return ctx; }, boot, powerOn,
   mediaAdd: (h, write) => { mediaSrc.push({ key: mediaKey(h.name || 'opfs'), label: h.name || 'OPFS', write: !!write, h, ok: true, dropped: true }); mediaPush(); } };   // (tests: an OPFS folder as media)
@@ -603,23 +655,7 @@ async function pluginMode() {
     if (++got === 1 && window.vibe_log) window.vibe_log('first picture arrived (' + u.length + ' bytes)');
   };
   window.vibeShowLibrary = () => showMenu('The firmware asked for the library:');
-  if (window.vibe_params) {                           // (27.10.) the Editor view: every parameter at once
-    editor = new Editor();
-    const ED_KEY = 'vibe.plugin.editor'; { const o = $('#tb-view option[value=editor]'); o.hidden = false; o.disabled = false; }
-    setEd = (on) => { document.body.classList.toggle('editing', on);
-      editor.show(on); if (on && lastFb) editor.frame(lastFb); try { localStorage.setItem(ED_KEY, on ? '1' : '0'); } catch (e) { /* storage off */ } if (!on) fit(); markView(); };
-    // the Editor is for native firmwares (their parameters in groups, or more than a converted FM-1 firmware's handful
-    // of knobs): for the others it is greyed out, and a view on it goes to Rack (27.10.)
-    checkEditor = async () => {
-      let ok = false;
-      try { const l = JSON.parse(await window.vibe_params()); ok = l.some((p) => p.group) || l.length > 7; } catch (e) { ok = false; }
-      const o = $('#tb-view option[value=editor]'); o.disabled = !ok; o.textContent = ok ? 'Editor' : 'Editor (native firmwares)';
-      if (!ok && editor.open) { setEd(false); setBox(true); }
-      return ok;
-    };
-    let e0 = null; try { e0 = localStorage.getItem(ED_KEY); } catch (e) { /* storage off */ }
-    checkEditor().then((ok) => { if (ok && e0 === '1') setEd(true); });
-  }
+  if (window.vibe_params) editorSetup(window, 'vibe.plugin.editor');   // (27.10.) the Editor view: every parameter at once
   {                                                   // (the whole window takes the drop – a file let go anywhere would else open in the view)
     // SDK 14: a firmware that takes samples (vibe_media_dropped) – audio files go to it, onto the pad or the display spot
     // they are let go on (the device stays visible: a slim hint instead of the firmware sheet)

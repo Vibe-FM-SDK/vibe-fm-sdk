@@ -203,7 +203,7 @@ The emulator has it now; the VIBE FM VST gets it with its next version (0.4.2 an
 cards in the plugin: your design, your controls, still a firmware that plays everywhere. It runs in a sandbox and
 talks to your firmware through `window.vibe` – parameters, curves, notes, the display, and bytes both ways
 (`vibe.send` ↔ `vibe_editor_post`). **[EDITOR-PAGE.md](EDITOR-PAGE.md)** is the guide; `examples/example-synth/editor/`
-a complete page. Needs VIBE FM VST 0.6.0.
+a complete page. The emulator shows it too (`python3 tools/emulator.py`, View ▾ → Editor); in a DAW it needs VIBE FM VST 0.6.0.
 
 ## Updates
 

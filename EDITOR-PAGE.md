@@ -1,8 +1,8 @@
 # Your own Editor page (SDK 16)
 
 **Give your firmware the interface you always wanted: your design, your controls, in plain HTML, CSS and JavaScript.**
-It ships inside your firmware's `.zip`, and VIBE FM VST shows it in its Editor view. No plugin framework, no build step
-for the page, no new plugin: the official VIBE FM VST 0.6.0 or newer runs it.
+It ships inside your firmware's `.zip`, and VIBE FM VST shows it in its Editor view – the emulator in your browser too.
+No plugin framework, no build step for the page, no new plugin: the official VIBE FM VST 0.6.0 or newer runs it.
 
 ```
 my-synth/
@@ -81,10 +81,12 @@ Or start from nothing with this `editor/index.html` – it works as it is:
 
 **2. Build.** `sh tools/build.sh my-synth` – it says `its Editor page: build/my-synth.editor/ (in the zip)`.
 
-**3. Run it.** Drop `build/my-synth.zip` onto the VIBE FM VST window, choose **View ▾ → Editor**. Your page is there,
-with **CUSTOM · STANDARD** above the little display on the left.
+**3. Run it – in the browser:** `python3 tools/emulator.py`, choose your firmware in the top bar, then **View ▾ →
+Editor**. Your page is there, with **CUSTOM · STANDARD** above the little display on the left. **In your DAW:** drop
+`build/my-synth.zip` onto the VIBE FM VST window, **View ▾ → Editor**.
 
-**4. Change, build, drop again.** That is the whole loop. Open the page's developer tools while you work (see
+**4. Change, build, reload.** That is the whole loop: in the emulator restart `tools/emulator.py` and reload the browser
+tab (it copies your new build); in the plugin drop the zip again. Open the page's developer tools while you work (see
 [When something does not work](#when-something-does-not-work)).
 
 ## How it works
@@ -299,7 +301,8 @@ No framework is needed, but you may use one: put its file into `editor/` (no CDN
 
 ## When something does not work
 
-**Open the page's developer tools:** in the plugin's Editor right-click your page → **Inspect** (Linux, Windows). On
+**Open the page's developer tools:** in the emulator the browser's own (F12; pick your page's frame in the console's
+context menu). In the plugin's Editor right-click your page → **Inspect** (Linux, Windows). On
 macOS: Safari → Settings → Advanced → "Show features for web developers", then **Develop** → your computer → the plugin's
 page. The console shows your errors and anything the sandbox blocked.
 
@@ -343,4 +346,4 @@ Your page is part of your firmware: same licence, same version (a new page is a 
 like; for **The Firmware Hub**, pages of curated firmwares are reviewed – playable without the page, no network, no
 tracking, readable.
 
-The browser emulator shows the standard Editor for now; test pages in VIBE FM VST. Protocol details: VIBE FM Protokoll 9.4.
+Protocol details: VIBE FM Protokoll 9.4.
