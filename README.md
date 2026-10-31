@@ -205,6 +205,15 @@ talks to your firmware through `window.vibe` – parameters, curves, notes, the 
 (`vibe.send` ↔ `vibe_editor_post`). **[EDITOR-PAGE.md](EDITOR-PAGE.md)** is the guide; `examples/example-synth/editor/`
 a complete page. The emulator shows it too (`python3 tools/emulator.py`, View ▾ → Editor); in a DAW it needs VIBE FM VST 0.6.0.
 
+## New in SDK 17: more cores – worker jobs
+
+The VIBE FM has four cores; your audio uses one. Heavy, independent parts of a block (several synth tracks, a reverb)
+can run on the others – `VIBE_JOBS(3)`, `vibe_on_job(k, frames)`, and in `vibe_on_audio` `vibe_jobs_begin(mask, frames)` …
+`vibe_jobs_wait()` (`sdk/include/vibe.h`). Where a host has no workers – VIBE FM VST, the emulator, a one-core computer –
+the jobs simply run one after the other, bit for bit the same: nothing to change, nothing to rebuild for anyone else.
+A job calls nothing of the SDK and touches only its own buffers; `vibe-check` runs the jobs in two orders and must hear
+the same sound.
+
 ## Updates
 
 This repository is where the SDK grows: `git pull` brings new versions, the **issues** are the place for questions,

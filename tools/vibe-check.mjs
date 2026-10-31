@@ -124,10 +124,11 @@ const mediaHost = () => new MediaHost({ fw: id, pending: 2, sources: { sd: { fil
 function host(files) {
   const h = { files, inAudio: false, media: mediaHost(), mediaAudio: 0, audioStore: 0, audioLog: 0, logs: [], requests: [], badNames: 0, reads: 0, writes: 0, inst: null, midi: { n: 0, bad: 0, clock: 0 } };
   const mem = () => h.inst.exports.memory.buffer, str = (p, n) => Buffer.from(mem(), p, n).toString();
+  const inJob = () => { const x = h.inst && h.inst.exports; if (x && x.vibe_wasm_in_job && x.vibe_wasm_in_job()) h.jobCalls = (h.jobCalls || 0) + 1; };   // (Protokoll 8: no host call from a job)
   h.inst = new WebAssembly.Instance(mod, { env: {
-    vibe_host_log: (p, n) => { if (h.inAudio) h.audioLog++; if (h.logs.length < 50) h.logs.push(str(p, n)); },
-    vibe_host_request: (w) => h.requests.push(w),
-    vibe_host_store: (op, np, nl, dp, len) => {
+    vibe_host_log: (p, n) => { inJob(); if (h.inAudio) h.audioLog++; if (h.logs.length < 50) h.logs.push(str(p, n)); },
+    vibe_host_request: (w) => { inJob(); h.requests.push(w); },
+    vibe_host_store: (op, np, nl, dp, len) => { inJob();
       if (h.inAudio) h.audioStore++;
       if (op >= 6) { if (h.inAudio) h.mediaAudio++; return h.media.store(op, mem(), np, nl, dp, len); }   // SDK 13
       if (op === 4) { const b = Buffer.from([...files.keys()].sort().map((k) => k + '\n').join('')); let n = 0; for (const k of [...files.keys()].sort()) { if (n + k.length + 1 > len) break; n += k.length + 1; } new Uint8Array(mem(), dp, n).set(b.subarray(0, n)); return n; }   // SDK 4: list
@@ -255,6 +256,38 @@ if (r1.trap && process.env.VIBE_STACK) console.error(r1.stack);
   if (withDraw > 0.001) check('Flow', noDraw > withDraw * 0.3, noDraw > withDraw * 0.3 ? 'plays even when the host does not draw (plugin with its window closed)'
     : `plays only while drawing (level ${withDraw.toFixed(3)} with, ${noDraw.toFixed(3)} without draw) – time-critical work does not belong in vibe_on_draw (section 9)`);
   else check('Flow', null, 'no sound on key/MIDI note – "plays without draw" not checked');
+}
+
+// Protokoll 8: worker jobs – the same, bit for bit, in any order (a job that leans on another's memory sounds different
+// in parallel, or crashes), no host call from a job, the time each job takes
+if (exports.get('vibe_wasm_workers') === 'function' && exports.get('vibe_wasm_jobs_reverse') === 'function') {
+  const play = (rev, timeJobs) => {
+    const hh = host(new Map()), x = hh.inst.exports; let out = [], ms = [[], [], []];
+    try {
+      x.vibe_wasm_init(SR); x.vibe_wasm_jobs_reverse(rev);
+      const io = x.vibe_wasm_io(), nj = x.vibe_wasm_workers();
+      for (let b = 0; b < Math.ceil(4 * SR / BLOCK); b++) {
+        if (b % 40 === 2) for (let v = 0; v < 4; v++) { x.vibe_wasm_event(5, 0, 0, 0, 0x90 | v | (48 + v * 7 + (b / 40 | 0) % 5) << 8 | 100 << 16); x.vibe_wasm_event(2, (v * 5 + b / 40) % 25 | 0, 1, 0.8, 0); }
+        if (b % 40 === 30) for (let v = 0; v < 4; v++) { x.vibe_wasm_event(5, 0, 0, 0, 0x80 | v | (48 + v * 7 + (b / 40 | 0) % 5) << 8); x.vibe_wasm_event(2, (v * 5 + b / 40) % 25 | 0, 0, 0, 0); }
+        hh.inAudio = true; x.vibe_wasm_audio(BLOCK, 0); hh.inAudio = false;
+        const f = new Float32Array(x.memory.buffer, io, 768); out.push(Float32Array.from(f.subarray(256, 256 + BLOCK)), Float32Array.from(f.subarray(512, 512 + BLOCK)));
+        if (timeJobs) for (let k = 0; k < nj; k++) { const t0 = performance.now(); x.vibe_wasm_job(k, BLOCK); ms[k].push(performance.now() - t0); }
+      }
+      return { n: nj, out, ms, calls: hh.jobCalls || 0 };
+    } catch (e) { return { n: 0, trap: String(e && e.message || e), calls: hh.jobCalls || 0 }; }
+  };
+  const a = play(0, false), b = play(1, false), tm = play(0, true), n = a.n;
+  if (n > 0) {
+    if (a.trap || b.trap) { const e = a.trap || b.trap; check('Jobs', false, `crash in a job: ${e}`); }
+    else {
+      let diff = 0, loud = 0; for (let i = 0; i < a.out.length; i++) for (let j = 0; j < a.out[i].length; j++) { if (!Object.is(a.out[i][j], b.out[i][j])) diff++; loud = Math.max(loud, Math.abs(a.out[i][j])); }
+      const calls = a.calls + b.calls;
+      const t = tm.ms.slice(0, n).map((m, k) => `${k}: ${(m.reduce((s, v) => s + v, 0) / Math.max(1, m.length)).toFixed(3)} / ${Math.max(0, ...m).toFixed(3)} ms`).join(' · ');
+      if (diff) check('Jobs', false, `the result depends on the order of the jobs (${n} samples differ) – a job reads or writes what another one writes: in parallel it sounds different or crashes`.replace('${n}', diff));
+      else if (calls) check('Jobs', false, `${n}× a host call from a job (vibe_* in a job: MUST NOT – log, storage, media, MIDI …)`.replace('${n}', calls));
+      else check('Jobs', loud > 1e-6 ? true : null, loud > 1e-6 ? `${n} jobs: bit-identical in any order, no host call · time per job (mean / peak): ${t}` : `${n} jobs – rendered silent, bit-identity says little`);
+    }
+  }
 }
 check("Robustness", !r1.trap, r1.trap ? `crash after ${r1.ms.length} blocks (${(r1.ms.length * BLOCK / SR).toFixed(1)} s): ${r1.trap} – last events [type,id,down,value,midi]: ${last.map((a) => JSON.stringify(a.map((v) => +(+v).toFixed(2)))).join(' ')}` : `${SECONDS} s of random events without a crash`);
 check('Robustness', !r1.nan, r1.nan ? `${r1.nan} samples NaN/infinite, first after ${(r1.nanAt * BLOCK / SR).toFixed(2)} s (input ${r1.nanIn ? 'on' : 'off'}) – last events [type,id,down,value,midi]: ${(r1.nanLast || []).map((a) => JSON.stringify(a.map((v) => +(+v).toFixed(2)))).join(' ')}` : 'no NaN, no infinity' + (r1.peak > 1 ? ` (peak ${r1.peak.toFixed(2)} above 1 – SHOULD stay below)` : ''));

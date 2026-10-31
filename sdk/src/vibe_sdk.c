@@ -464,6 +464,88 @@ int vibe_latency_in(void) { return (int)vtime.latency_in; }
 __attribute__((weak)) int vibe_on_flows(void) { return 1; }   /* VIBE_PARALLEL_AUDIO in a firmware: 2 */
 VIBE_EXPORT(vibe_wasm_time) void *vibe_wasm_time(void) { return &vtime; }
 VIBE_EXPORT(vibe_wasm_flows) int vibe_wasm_flows(void) { return vibe_on_flows(); }
+
+/* ---- SDK 17 (Protokoll 8): worker jobs – fork and join inside one audio block ----------------------------------------
+ * No import: a host with workers starts vibe_wasm_worker(w) once per worker, each in a flow of its own with its own stack
+ * (WAMR: wasm_runtime_spawn_exec_env), pinned to a core of its own; it loops here until vibe_wasm_workers_stop. Job w runs
+ * on worker w. vibe_jobs_begin bumps jb_go[w] and wakes it (memory.atomic.notify); the worker spins a little, then sleeps
+ * in memory.atomic.wait (a futex). vibe_jobs_wait spins (the audio flow never sleeps). Jobs without a live worker – no
+ * host workers at all: the plugin, the browser, an older VIBE – run right there in vibe_jobs_begin, in order. */
+__attribute__((weak)) int vibe_on_jobs(void) { return 0; }                 /* VIBE_JOBS(n) in a firmware: n (0..3) */
+__attribute__((weak)) void vibe_on_job(int k, int frames) { (void)k; (void)frames; }
+static int32_t jb_n = -1;                         /* the firmware's jobs, asked once */
+static int32_t jb_go[3], jb_alive, jb_done, jb_par, jb_quit, jb_frames, jb_injob, jb_reverse;
+static int jb_count(void) { if (jb_n < 0) { int n = vibe_on_jobs(); jb_n = n < 0 ? 0 : n > 3 ? 3 : n; } return jb_n; }
+static void jb_inline(unsigned m, int frames)
+{
+  for (int i = 0; i < 3; i++) {
+    int k = jb_reverse ? 2 - i : i;
+    if (m >> k & 1u) { jb_injob = k + 1; vibe_on_job(k, frames); jb_injob = 0; }
+  }
+}
+void vibe_jobs_begin(unsigned mask, int frames)
+{
+  mask &= (1u << jb_count()) - 1u;
+  unsigned par = mask & (unsigned)__atomic_load_n(&jb_alive, __ATOMIC_ACQUIRE);
+  jb_par = (int32_t)par;
+  if (par) {
+    __atomic_store_n(&jb_frames, frames, __ATOMIC_RELAXED);
+    __atomic_store_n(&jb_done, 0, __ATOMIC_RELEASE);
+#if defined(__wasm__) && defined(__wasm_atomics__)
+    for (int k = 0; k < 3; k++) if (par >> k & 1u) { __atomic_fetch_add(&jb_go[k], 1, __ATOMIC_SEQ_CST); __builtin_wasm_memory_atomic_notify(&jb_go[k], 1); }
+#endif
+  }
+  jb_inline(mask & ~par, frames);                 /* (no worker for these: here, now) */
+}
+void vibe_jobs_wait(void)
+{
+  unsigned par = (unsigned)jb_par; if (!par) return;
+  while (((unsigned)__atomic_load_n(&jb_done, __ATOMIC_ACQUIRE) & par) != par) { }   /* (spin: microseconds, never a sleep in audio) */
+  jb_par = 0;
+}
+VIBE_EXPORT(vibe_wasm_workers) int vibe_wasm_workers(void) { return jb_count(); }
+VIBE_EXPORT(vibe_wasm_job) void vibe_wasm_job(int k, int frames)   /* (one job, called directly: a host's own pool, a test) */
+{
+  if (k >= 0 && k < jb_count() && frames > 0) { jb_injob = k + 1; vibe_on_job(k, frames); jb_injob = 0; }
+}
+VIBE_EXPORT(vibe_wasm_worker) int vibe_wasm_worker(int w)   /* (the host's worker w: back only after _stop – or -1) */
+{
+  if (w < 0 || w >= jb_count()) return -1;
+#if defined(__wasm__) && defined(__wasm_atomics__)
+  int32_t seen = __atomic_load_n(&jb_go[w], __ATOMIC_ACQUIRE);
+  __atomic_fetch_or(&jb_alive, 1 << w, __ATOMIC_SEQ_CST);
+  for (;;) {
+    int spin = 4000;                              /* (a moment awake: the next block is often only microseconds away) */
+    while (__atomic_load_n(&jb_go[w], __ATOMIC_ACQUIRE) == seen) {
+      if (__atomic_load_n(&jb_quit, __ATOMIC_ACQUIRE)) { __atomic_fetch_and(&jb_alive, ~(1 << w), __ATOMIC_SEQ_CST); return 0; }
+      if (spin > 0) spin--; else __builtin_wasm_memory_atomic_wait32(&jb_go[w], seen, -1);
+    }
+    seen = __atomic_load_n(&jb_go[w], __ATOMIC_ACQUIRE);
+    if (__atomic_load_n(&jb_quit, __ATOMIC_ACQUIRE)) { __atomic_fetch_and(&jb_alive, ~(1 << w), __ATOMIC_SEQ_CST); return 0; }
+    vibe_on_job(w, __atomic_load_n(&jb_frames, __ATOMIC_RELAXED));
+    __atomic_fetch_or(&jb_done, 1 << w, __ATOMIC_RELEASE);
+  }
+#else
+  return -1;                                      /* (a build without atomics: no workers, jobs in line) */
+#endif
+}
+VIBE_EXPORT(vibe_wasm_workers_stop) void vibe_wasm_workers_stop(void)   /* (the host, before it lets the instance go) */
+{
+  __atomic_store_n(&jb_quit, 1, __ATOMIC_SEQ_CST);
+#if defined(__wasm__) && defined(__wasm_atomics__)
+  for (int k = 0; k < 3; k++) { __atomic_fetch_add(&jb_go[k], 1, __ATOMIC_SEQ_CST); __builtin_wasm_memory_atomic_notify(&jb_go[k], 1); }
+#endif
+}
+VIBE_EXPORT(vibe_wasm_worker_lost) void vibe_wasm_worker_lost(int w)   /* (its job trapped: it is gone – a wait must not hang) */
+{
+  if (w < 0 || w > 2) return;
+  __atomic_fetch_and(&jb_alive, ~(1 << w), __ATOMIC_SEQ_CST);
+  __atomic_fetch_or(&jb_done, 1 << w, __ATOMIC_RELEASE);
+}
+/* tests (wasmtest, vibe-check): the jobs in line in reverse order – a job that leans on another's memory then sounds
+   different; and which job runs in line now (a job must not reach the host: no vibe_host_* while this is > 0) */
+VIBE_EXPORT(vibe_wasm_jobs_reverse) void vibe_wasm_jobs_reverse(int on) { jb_reverse = on; }
+VIBE_EXPORT(vibe_wasm_in_job) int vibe_wasm_in_job(void) { return jb_injob; }
 VIBE_EXPORT(vibe_wasm_init) void vibe_wasm_init(float sr) { sdk_sr = sr > 0.0f ? sr : 48000.0f; vibe_on_init(sr); }
 /* ---- SDK 8: notes – the keys, the pads and MIDI's note on / off become VIBE_EV_NOTE (vibe_notes) -------------------- */
 static int notes_flags, keys_oct = 1;

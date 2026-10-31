@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 16       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 17       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -52,7 +52,10 @@
                                       (VIBE_EV_SYSEX, vibe_sysex_in). Optional exports again: an older host shows no
                                       buttons and sends no SysEx; the firmware still runs.
                                       16 (31.10.2026): the firmware's own Editor page (editor/, EDITOR-PAGE.md) and bytes
-                                      between it and the firmware (vibe_editor_post, VIBE_EV_EDITOR_DATA). */
+                                      between it and the firmware (vibe_editor_post, VIBE_EV_EDITOR_DATA).
+                                      17 (31.10.2026): worker jobs (VIBE_JOBS, vibe_jobs_begin / _wait – Protokoll 8):
+                                      independent parts of a block on other cores. No new import: a host without workers
+                                      (the plugin, the browser, an older VIBE) runs them in line, bit for bit the same. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -391,6 +394,28 @@ int vibe_latency_in(void);      /* frames from IN 1/IN 2 to vibe_on_audio; 0 = u
 #define VIBE_PARALLEL_AUDIO int vibe_on_flows(void) { return 2; }
 #define VIBE_RELEASE() __atomic_thread_fence(__ATOMIC_RELEASE)
 #define VIBE_ACQUIRE() __atomic_thread_fence(__ATOMIC_ACQUIRE)
+
+/* ---- worker jobs (SDK 17, Protokoll 8): more cores for one audio block --------------------------------------------
+   The VIBE has 4 cores; the audio flow uses one. A firmware with heavy, independent parts (four synth voices' tracks,
+   a reverb) hands up to 3 of them to other cores, inside vibe_on_audio – fork and join:
+
+     VIBE_JOBS(3)                                     // at file scope: jobs 0, 1, 2
+     void vibe_on_job(int k, int frames) { render_track(k + 1, frames); }   // a job: only into its own buffers
+     void vibe_on_audio(...) {
+       vibe_jobs_begin(0x7, frames);                  // jobs 0-2 start (on other cores, where the host has them)
+       render_track(0, frames);                       // meanwhile this flow does its own part
+       vibe_jobs_wait();                              // all done – mix
+     }
+
+   Where the host has no workers (VIBE FM VST, the browser, a one-core computer, an older VIBE) vibe_jobs_begin runs
+   the jobs right away, one after the other – the same result, bit for bit. A firmware without jobs needs nothing.
+   A job DOES NOT call the SDK (no vibe_* at all: no log, store, media, MIDI, parameters, drawing), allocates nothing,
+   waits for nothing, and writes only memory no other job and not the audio flow touches until vibe_jobs_wait.
+   Read-only shared tables are fine. k = 0..2; frames as given to vibe_jobs_begin. */
+#define VIBE_JOBS(n) int vibe_on_jobs(void) { return (n); }
+void vibe_on_job(int k, int frames);              /* yours, when you use VIBE_JOBS */
+void vibe_jobs_begin(unsigned mask, int frames);  /* bit k = job k; from vibe_on_audio only */
+void vibe_jobs_wait(void);                        /* back when every job of the last begin is done */
 
 /* host services */
 void vibe_log(const char *text);                                       /* to the browser console / device log */
