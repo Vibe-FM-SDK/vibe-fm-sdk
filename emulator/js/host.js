@@ -3,7 +3,7 @@
 //   the computer keyboard and USB-MIDI as SDK events, shows the display frames and LEDs it sends back,
 //   connects IN 1/IN 2 when a firmware asks, runs the rear panel (pedal, CV/Gate, clock) and offers the firmware
 //   library (HOME at power-on, or the menu).
-import { Panel, EV, BTN, ENC, BOX_H } from './panel.js';
+import { Panel, EV, BTN, ENC, BOX_H, displayTouch, crisp } from './panel.js';
 import { Controllers } from './controllers.js';
 import { Rear } from './rear.js';
 import { Editor } from './editor.js';
@@ -278,6 +278,9 @@ wrap.addEventListener('drop', async (e) => {
     entries.forEach((x, i) => mediaDrop(x, hs[i] && hs[i].kind === 'directory' ? hs[i] : null)); return;
   }
   const plain = [...e.dataTransfer.files], fw = plain.find((f) => /\.wasm$/i.test(f.name));
+  if (!fw && plain.length && plain.every((f) => /\.json$/i.test(f.name))) {   // (0.7.0) a controller profile
+    if (await ctlTakeFiles(await Promise.all(plain.map(async (f) => ({ name: f.name, text: await f.text() }))))) return;
+  }
   if (fw) { await powerOn(); boot({ name: fw.name.replace(/\.wasm$/i, ''), bytes: await fw.arrayBuffer() }); return; }
   let items = entries.length ? await walkEntries(entries) : plain.map((f) => ({ f, dir: [] }));
   if (entries.length === 1 && entries[0].isDirectory) items = items.map((x) => ({ f: x.f, dir: x.dir.slice(1) }));   // one folder dropped: its content (albums) at the top
@@ -406,7 +409,10 @@ mediaRestore();
 
 // ---------------------------------------------------------------- USB-MIDI ------------------------------------------
 $('#tb-midi').addEventListener('click', async () => { await powerOn(); if (await ctl.connect()) $('#tb-midi').classList.add('on'); });
-ctl.onWizard = (on) => $('#tb-setup').classList.toggle('on', on);
+ctl.onWizard = (on) => {
+  $('#tb-setup').classList.toggle('on', on);
+  if (!on && PLUGIN && window.vibe_ctl_listen) { window.vibe_ctl_listen(0); ctlLearned(false); }   // (0.7.0: what was set up becomes a new profile)
+};
 const chSel = $('#midich'); chSel.value = String(ctl.channel); chSel.addEventListener('change', () => ctl.setChannel(chSel.value));
 // (SDK 9) the firmware's MIDI out: a Web MIDI output, chosen here (the list fills once MIDI is connected)
 const outSel = $('#midiout');
@@ -415,24 +421,183 @@ outSel.addEventListener('change', async () => { if (!ctl.access) { await powerOn
 $('#tb-setup').addEventListener('click', async () => {
   await powerOn(); if (!ctl.access) await ctl.connect();
   if (ctl.wiz) { ctl.stopWizard(false); $('#tb-setup').classList.remove('on'); return; }
+  if (PLUGIN && window.vibe_ctl_listen) { window.vibe_ctl_listen(1); status('Setup: your controller into this track in the DAW (its MIDI input), then follow the steps'); }
   ctl.startWizard(); $('#tb-setup').classList.add('on');
 });
 ctl.onParam = (i, v) => { if (node && running) node.port.postMessage({ t: 'pset', i, v }); };   // (SDK 11: a mixer controller moves a mix_* parameter)
 ctl.onLibrary = () => showMenu('Your controller asked for the library:');   // (a profile's "library" entry)
-$('#tb-profile').addEventListener('click', () => {   // (Protokoll 15a) what was learned here, as profile files
-  const list = ctl.exportProfiles();
-  if (!list.length) { status('Nothing learned yet – connect your controller and press "Setup" first'); return; }
+// ---------------------------------------------------------------- controller profiles (Protokoll 15a, 0.7.0) ----------
+// Plugin: the controller plays into the DAW, the plugin applies the chosen profile itself (vibe_controller.cpp) – one per
+// instance, kept in the project, the last one chosen for new instances; own ones in the "Controllers" folder beside
+// "Firmware". Setup / Learn learn from the DAW's MIDI (the plugin hands it over meanwhile) and end in "Save your profile".
+// Browser: the profile by the port's name, as before; loaded ones kept in this browser.
+const ctlSel = $('#ctlsel'), ctlDlg = $('#ctldlg');
+const isProfile = (o) => !!o && typeof o === 'object' && !Array.isArray(o) && Array.isArray(o.map);
+let ctlActive = '', ctlKnown = [];
+async function ctlRefresh() {
+  ctlSel.textContent = '';
+  const opt = (v, t, off) => { const o = document.createElement('option'); o.value = v; o.textContent = t; o.disabled = !!off; ctlSel.appendChild(o); };
+  if (PLUGIN && window.vibe_ctl_list) {
+    let l = { active: '', profiles: [] }; try { l = JSON.parse(await window.vibe_ctl_list()); } catch (e) { /* none */ }
+    ctlActive = l.active || ''; ctlKnown = l.profiles || [];
+    opt('', 'Controller: none');
+    for (const p of ctlKnown) opt('p:' + p.name, 'Controller: ' + p.name + (p.project ? ' (this project\'s)' : p.own ? ' (yours)' : ''));
+    opt('-', '──────────', true);
+    opt('__setup', 'Set up a new one …'); opt('__load', 'Load a profile …'); opt('__folder', 'Open the profiles folder'); opt('__share', 'Share yours …');
+    { const n = learnedIds().length; if (n) opt('__forget', 'Forget the learned knobs (' + n + ')'); }   // (MIDI-Learn in the Editor)
+    ctlSel.value = ctlActive ? 'p:' + ctlActive : '';
+    if (editor && editor.learned) editor.learned(learnedIds());
+  } else {
+    opt('', 'Controllers ▾');                         // (the browser takes the profile whose "match" is in the port's name)
+    opt('__setup', 'Set up a new one …'); opt('__load', 'Load a profile …'); opt('__save', 'Save yours ↓'); opt('__share', 'Share yours …');
+    ctlSel.value = '';
+  }
+}
+const errOf = (r) => { try { return JSON.parse(r).error || r; } catch (e) { return r; } };
+// profile files (name, text): into the plugin's folder (and chosen) / this browser – false: none of them was a profile
+async function ctlTakeFiles(list) {
+  let n = 0, last = '';
+  for (const f of list) {
+    let o; try { o = JSON.parse(f.text); } catch (e) { continue; }
+    if (Array.isArray(o)) o = o[0];
+    if (!isProfile(o)) continue;
+    if (!o.name) o.name = f.name.replace(/\.json$/i, '');
+    if (PLUGIN) { const r = await window.vibe_ctl_save(JSON.stringify(o, null, 2) + '\n'); if (r !== 'ok') { status(f.name + ': ' + errOf(r), true); continue; } }
+    else ctl.addOwn(o);
+    n++; last = o.name;
+  }
+  if (!n) return false;
+  await ctlRefresh();
+  status('Controller profile "' + last + '" loaded – ' + (PLUGIN ? 'it maps your controller now (its MIDI into this track)' : 'it maps the controller whose port name it matches'));
+  return true;
+}
+function ctlLoad() {
+  if (window.vibe_pick_json) {                        // (plugin, macOS / Linux: the system's own dialog – WebKit's file input did nothing there)
+    window.vibe_pick_json().then(async (s) => { let r; try { r = JSON.parse(s); } catch (e) { r = {}; } if (r.files && !(await ctlTakeFiles(r.files))) status('That was not a controller profile (a .json with a "map")', true); });
+    return;
+  }
+  const inp = document.createElement('input'); inp.type = 'file'; inp.accept = '.json'; inp.multiple = true;
+  inp.addEventListener('change', async () => { const fs = await Promise.all([...inp.files].map(async (f) => ({ name: f.name, text: await f.text() }))); if (fs.length && !(await ctlTakeFiles(fs))) status('That was not a controller profile (a .json with a "map")', true); });
+  inp.click();
+}
+function ctlDownload(list) {                          // (browser) profiles as files
   for (const p of list) {
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([JSON.stringify(p, null, 2) + '\n'], { type: 'application/json' }));
     a.download = p.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') + '.json'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 2000);
   }
-  status('Saved ' + list.length + ' controller profile' + (list.length > 1 ? 's' : '') + ' – share it, or put it into the SDK\'s controllers/ folder');
+}
+const SHARE = 'https://thefirmwarehub.com/controllers/';
+function ctlShare() {
+  if (PLUGIN) { window.vibe_ctl_open('share'); window.vibe_ctl_open('folder'); status('The hub\'s page and your profiles folder are open – upload your profile\'s .json there. Thank you!'); return; }
+  const list = ctl.exportProfiles(); if (list.length) ctlDownload(list);
+  window.open(SHARE, '_blank', 'noopener');
+  status(list.length ? 'Your profile is downloaded – upload it on the hub\'s page. Thank you!' : 'Set your controller up first (Setup), then share it');
+}
+// (plugin) what Setup / Learn just learned from the DAW ("DAW|…" mappings): Setup – a new profile (a new controller);
+// Learn – on top of the profile in use. Named in the dialog, saved into the folder and chosen; the mappings then live in it
+const srcOf = (e) => (e.cc !== undefined ? 'c' + e.cc : e.note !== undefined ? 'n' + e.note : e.pitchbend !== undefined ? 'b' + e.pitchbend : '?') + '|' + (e.channel || 0);
+function ctlLearned(onTop) {
+  const got = ctl.exportProfiles().find((p) => p.name === 'DAW');
+  if (!got || !got.map.length) return;
+  const cur = onTop ? ctlKnown.find((p) => p.name === ctlActive) : null; let base = null; try { base = cur ? JSON.parse(cur.json) : null; } catch (e) { base = null; }
+  const keys = new Set(got.map.map(srcOf));
+  const map = [...(base && base.map ? base.map.filter((e) => !keys.has(srcOf(e))) : []), ...got.map];
+  const prof = { ...(base || { format: 1, knobs: 'auto' }), map };
+  $('#ctldlg-name').value = cur && cur.own ? ctlActive : '';
+  $('#ctldlg-note').textContent = (base ? got.map.length + ' controls learned, on top of "' + ctlActive + '"' : got.map.length + ' controls learned') + ' – as a profile it maps your controller from now on, in every project.';
+  ctlDlg.onclose = null;
+  $('#ctldlg-cancel').onclick = () => ctlDlg.close();
+  $('#ctldlg-form').onsubmit = async (ev) => {
+    ev.preventDefault();
+    const name = $('#ctldlg-name').value.trim(); if (!name) return;
+    prof.name = name; prof.match = [name];
+    const r = await window.vibe_ctl_save(JSON.stringify(prof, null, 2) + '\n');
+    if (r !== 'ok') { status(errOf(r), true); return; }
+    for (const k of Object.keys(ctl.bind)) if (k.startsWith('DAW|')) delete ctl.bind[k];
+    ctl.save(); ctlDlg.close(); await ctlRefresh();
+    status('Saved "' + name + '" – it maps your controller now. Controller ▾ → Share yours … sends it to us for everyone');
+  };
+  ctlDlg.showModal(); $('#ctldlg-name').focus();
+}
+ctlSel.addEventListener('change', async () => {
+  const v = ctlSel.value;
+  if (v === '' || v.startsWith('p:')) {
+    if (!PLUGIN) { ctlSel.value = ''; return; }
+    const r = await window.vibe_ctl_select(v.slice(2));
+    if (r !== 'ok') status(errOf(r), true);
+    else status(v ? 'Controller: ' + v.slice(2) + ' – plays into this track through the DAW and maps onto the VIBE' : 'No controller profile – the DAW\'s MIDI goes to the firmware as it is');
+    await ctlRefresh(); return;
+  }
+  await ctlRefresh();                                 // (an action, not a choice: the choice shows again)
+  if (v === '__setup') $('#tb-setup').click();
+  else if (v === '__load') ctlLoad();
+  else if (v === '__folder' && window.vibe_ctl_open) window.vibe_ctl_open('folder');
+  else if (v === '__share') ctlShare();
+  else if (v === '__forget') forgetLearned();
+  else if (v === '__save') { const l = ctl.exportProfiles(); if (l.length) ctlDownload(l); else status('Nothing learned yet – connect your controller and press "Setup" first'); }
 });
+ctlRefresh();
+
+// 0.7.0 – MIDI-Learn in the Editor: a right click on a control, then a knob moved on the controller: from then on it turns
+// that parameter (the profile's entry "to":"param" with the firmware's id – the plugin applies it, window open or closed).
+// Into the profile in use (an own one of the same name wins over a built-in one); none in use: a new one, named first.
+let dawTap = null;                                    // (a learn waiting: the DAW's next CC is the knob)
+const fwNow = () => (PLUGIN ? (current && current.id) || '' : '');
+function learnedIds() {
+  const cur = ctlKnown.find((p) => p.name === ctlActive); let o = null; try { o = cur ? JSON.parse(cur.json) : null; } catch (e) { o = null; }
+  return o && Array.isArray(o.map) ? o.map.filter((e) => e.to === 'param' && (!e.firmware || e.firmware === fwNow())).map((e) => e.id) : [];
+}
+async function saveParamMap(change) {               // change(map) → the new map; into the profile in use, or a new one
+  const cur = ctlKnown.find((p) => p.name === ctlActive); let base = null; try { base = cur ? JSON.parse(cur.json) : null; } catch (e) { base = null; }
+  const prof = base || { format: 1, knobs: 'auto', map: [] };
+  prof.map = change(prof.map || []);
+  if (base) { const r = await window.vibe_ctl_save(JSON.stringify(prof, null, 2) + '\n'); if (r !== 'ok') { status(errOf(r), true); return false; } await ctlRefresh(); return true; }
+  return new Promise((done) => {                      // (no profile yet: name it – the same dialog as after Setup)
+    $('#ctldlg-name').value = ''; $('#ctldlg-note').textContent = 'Your controller has no profile yet – name it, and the knob you just learned is in it.';
+    $('#ctldlg-cancel').onclick = () => { ctlDlg.close(); done(false); };
+    $('#ctldlg-form').onsubmit = async (ev) => {
+      ev.preventDefault(); const name = $('#ctldlg-name').value.trim(); if (!name) return;
+      prof.name = name; prof.match = [name];
+      const r = await window.vibe_ctl_save(JSON.stringify(prof, null, 2) + '\n'); if (r !== 'ok') { status(errOf(r), true); return; }
+      ctlDlg.close(); await ctlRefresh(); done(true);
+    };
+    ctlDlg.showModal(); $('#ctldlg-name').focus();
+  });
+}
+function forgetLearned() {                         // every knob learned onto this firmware's parameters, out of the profile
+  const n = learnedIds().length; if (!n) return;
+  saveParamMap((map) => map.filter((e) => !(e.to === 'param' && (!e.firmware || e.firmware === fwNow()))))
+    .then((ok) => { if (ok) status(n + ' learned knob' + (n > 1 ? 's' : '') + ' forgotten – the controller turns the VIBE\'s encoders again'); });
+}
+function learnMenu(p, x, y) {
+  document.querySelector('.ed-learnmenu')?.remove();
+  const m = document.createElement('div'); m.className = 'ed-learnmenu'; m.style.left = x + 'px'; m.style.top = y + 'px';
+  const item = (t, f) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = t; b.onclick = () => { m.remove(); f(); }; m.appendChild(b); };
+  item('Learn: move a knob on your controller', () => learnParam(p));
+  if (learnedIds().length > 1) item('Forget all learned knobs', forgetLearned);
+  if (learnedIds().includes(p.id)) item('Forget the controller\'s knob', async () => { if (await saveParamMap((map) => map.filter((e) => !(e.to === 'param' && e.id === p.id && (!e.firmware || e.firmware === fwNow()))))) status(p.name + ': no knob any more'); });
+  document.body.appendChild(m);
+  setTimeout(() => document.addEventListener('pointerdown', (e) => { if (!m.contains(e.target)) m.remove(); }, { once: true }), 0);
+}
+function learnParam(p) {
+  if (!window.vibe_ctl_listen) return;
+  window.vibe_ctl_listen(1); status('Learn: now move the knob on your controller for ' + p.name + ' …');
+  const stop = setTimeout(() => { dawTap = null; window.vibe_ctl_listen(0); status('Learn: nothing came – is your controller on this track in the DAW?', true); }, 15000);
+  dawTap = (m) => {
+    if ((m[0] & 0xF0) !== 0xB0) return true;         // (only a knob – a CC; the rest is swallowed while learning)
+    clearTimeout(stop); dawTap = null; window.vibe_ctl_listen(0);
+    const e = { cc: m[1], channel: (m[0] & 15) + 1, to: 'param', id: p.id, firmware: fwNow(), label: p.name };
+    saveParamMap((map) => [...map.filter((x) => !(x.cc === e.cc && (x.channel || 0) === e.channel) && !(x.to === 'param' && x.id === p.id && x.firmware === e.firmware)), e])
+      .then((ok) => { if (ok) status('CC ' + e.cc + ' (channel ' + e.channel + ') turns ' + p.name + ' now – kept in "' + ctlActive + '"'); });
+    return true;
+  };
+}
 $('#tb-learn').addEventListener('click', async (e) => {
   await powerOn(); if (!ctl.access) await ctl.connect();
   if (e.shiftKey) { ctl.clear(); return; }                       // Shift + click: forget all mappings
   if (ctl.wizSkip()) return;                                     // while setting up: skip this step
   ctl.setLearning(!ctl.learning); $('#tb-learn').classList.toggle('on', ctl.learning);
+  if (PLUGIN && window.vibe_ctl_listen) { window.vibe_ctl_listen(ctl.learning ? 1 : 0); if (!ctl.learning) ctlLearned(true); }   // (0.7.0: learned on top of the profile in use)
 });
 
 // ---------------------------------------------------------------- computer keyboard --------------------------------
@@ -539,6 +704,9 @@ $('#tb-full').addEventListener('click', () => { if (!document.fullscreenElement)
 // the Editor view (27.10.; the browser too since 31.10.2026): b = its bindings – the plugin's (window) or the browser's (edB)
 function editorSetup(b, key) {
   editor = new Editor(b);
+  displayTouch(editor.canvas, () => editor.canvas, (...a) => panel.emit(...a), () => panel.touchable()); crisp(editor.canvas);
+  if (PLUGIN && window.vibe_ctl_save) editor.onLearn = (p, x, y) => learnMenu(p, x, y);   // (0.7.0: MIDI-Learn per parameter)
+  window.vibeFocusMove = (c, pg, t) => { if (editor && editor.open) editor.focusMove(c || 0, pg || 0, t || 0); };   // (the controller: card, page, track)   // (the Editor's small display, too)
   const ED_KEY = key; { const o = $('#tb-view option[value=editor]'); o.hidden = false; o.disabled = false; }
   setEd = (on) => { document.body.classList.toggle('editing', on);
     editor.show(on); if (on && lastFb) editor.frame(lastFb); if (!PLUGIN && node) node.port.postMessage({ t: 'edwant', on });
@@ -547,13 +715,19 @@ function editorSetup(b, key) {
   // of knobs): for the others it is greyed out, and a view on it goes to Rack (27.10.)
   checkEditor = async () => {
     let ok = false;
-    try { const l = JSON.parse(await b.vibe_params()); ok = l.some((p) => p.group) || l.length > 7; } catch (e) { ok = false; }
+    let fm1 = false;
+    try { const l = JSON.parse(await b.vibe_params()); ok = l.some((p) => p.group) || l.length > 7;
+          fm1 = l.some((p) => p.id === 'algorithm') && l.some((p) => p.id === 'presets'); } catch (e) { ok = false; }
+    panel.fm1 = fm1;                                  // (1.11.: a converted FM-1 firmware names its soft keys too – its display takes no clicks)
     const o = $('#tb-view option[value=editor]'); o.disabled = !ok; o.textContent = ok ? 'Editor' : 'Editor (native firmwares)';
+    panel.touchOk = ok;                               // (31.10.: a native firmware's display takes clicks – soft keys, knob columns)
     if (!ok && editor.open) { setEd(false); setBox(true); }
     return ok;
   };
   let e0 = null; try { e0 = localStorage.getItem(ED_KEY); } catch (e) { /* storage off */ }
-  checkEditor().then((ok) => { if (ok && e0 === '1') setEd(true); });
+  // (31.10.: in the plugin the Editor is the first view of a firmware that has one – a DAW shows its controls; once a
+  //  view was chosen, that one; the browser starts with the device)
+  checkEditor().then((ok) => { if (ok && (e0 === '1' || (e0 === null && PLUGIN))) setEd(true); });
 }
 // the browser's answers to the Editor, by the plugin's names – from the worklet: the description once ('eddesc'), the
 // values and the firmware's posts with every picture, a curve on asking ('curveR'); a page next to the .wasm
@@ -645,7 +819,8 @@ async function pluginMode() {
   panel.printLabels = true; panel.labelKey = null;    // (the firmware's captions printed on the coloured keys and F1–F6)
   { let b = null; try { b = localStorage.getItem(BOX_KEY); } catch (e) { /* storage off */ } if (b === null) setBox(true); }   // (the plugin starts in the box view)
   $('.brand').innerHTML = '<b>VIBE</b> <em>FM</em> <span>VST</span> <small class="claim">MAKE FIRMWARE <i>NOT WAR</i></small>';
-  for (const id of ['#tb-in', '#tb-rear', '#tb-midi', '#midiout', '#tb-media']) { const el = $(id); if (el) el.style.display = 'none'; }   // (the plugin: its media folder is in its settings)   // (the DAW has the audio and MIDI – and the firmware's MIDI out goes to its note port)
+  $('.brand').insertAdjacentElement('afterend', $('.viewsel'));   // (31.10.: View on the left, beside the name – in the tools on the right it was hard to find)
+  for (const id of ['#tb-in', '#tb-rear', '#tb-midi', '#midiout', '#tb-media', '#midich']) { const el = $(id); if (el) el.style.display = 'none'; }   // (the plugin: its media folder is in its settings; the DAW picks the channels)   // (the DAW has the audio and MIDI – and the firmware's MIDI out goes to its note port)
   showRear(false);
   const apply = frameSink();
   let got = 0;
@@ -679,10 +854,10 @@ async function pluginMode() {
       if (rest.length || !sounds.length) pluginInstall(rest.length ? rest : files);
     });
   }
-  if (window.vibe_midi_ports) {                       // the plugin reads the MIDI controllers itself (CoreMIDI): mapped as here
-    pluginMidi(); ctl.plugin = true;                  // (the DAW plays the notes: only the controller mapping is ours)
-    ctl.connect().then((ok) => { if (ok) $('#tb-midi').classList.add('on'); });
-  }
+  // the plugin's MIDI: the DAW's (while Setup / Learn listen – 0.7.0, every system) and on the Mac the controllers the
+  // window reads itself (CoreMIDI: the Launchpad's lights; the others the plugin maps, see controllers.js generic)
+  pluginMidi(); ctl.plugin = true;                    // (the DAW plays the notes: the window only learns)
+  ctl.connect().then((ok) => { if (ok && window.vibe_midi_ports) $('#tb-midi').classList.add('on'); });
   if (window.vibe_log) window.vibe_log('plugin mode started');
   if (window.vibe_ready) window.vibe_ready();         // (now the whole picture: one sent before this point is lost)
   await pluginLibrary();
@@ -697,7 +872,9 @@ function pluginMidi() {
     inputs.clear(); outputs.clear();
     l.in.forEach((name, i) => inputs.set('in' + i, { id: 'in' + i, name, onmidimessage: keep.get('in' + i) || null }));
     l.out.forEach((name, i) => outputs.set('out' + i, { id: 'out' + i, name, send: (d) => window.vibe_midi_send(i, Array.from(d)) }));
+    inputs.set('daw', { id: 'daw', name: 'DAW', onmidimessage: keep.get('daw') || null });   // (0.7.0: the DAW's MIDI, while Setup / Learn listen)
   };
+  window.vibeDawMidi = (list) => { const p = inputs.get('daw'); for (const m of list) { if (dawTap && dawTap(m)) continue; if (p && p.onmidimessage) p.onmidimessage({ data: Uint8Array.from(m) }); } };
   window.vibeMidi = (i, bytes) => {                   // one CoreMIDI packet: split into messages (running status kept)
     const port = inputs.get('in' + i); if (!port || !port.onmidimessage) return;
     let k = 0, run = 0;
@@ -767,6 +944,11 @@ async function pluginDropSamples(files, at) {
 // writes <id>.wasm + <id>.json into its firmware folder, the list is read again and the (first) new one starts
 async function pluginInstall(files) {
   files = [...files].filter((f) => /\.(zip|wasm|json)$/i.test(f.name));
+  {                                                   // (0.7.0) a controller profile (.json with a "map"): into the profiles, not the firmwares
+    const prof = [];
+    for (const f of files.filter((x) => /\.json$/i.test(x.name))) { const text = await f.text(); try { const o = JSON.parse(text); if (isProfile(Array.isArray(o) ? o[0] : o)) prof.push({ f, text }); } catch (e) { /* a firmware's card */ } }
+    if (prof.length) { await ctlTakeFiles(prof.map((x) => ({ name: x.f.name, text: x.text }))); files = files.filter((f) => !prof.some((x) => x.f === f)); if (!files.length) return; }
+  }
   if (!files.length) { status('Drop the firmware\'s .zip from thefirmwarehub.com (or its .wasm)', true); return; }
   if (!window.vibe_install) { status('This plugin cannot install yet – copy the .wasm into the VIBE FM firmware folder', true); return; }
   hideMenu(); status('installing ' + files.map((f) => f.name).join(', ') + ' …');

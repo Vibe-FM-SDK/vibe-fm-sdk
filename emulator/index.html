@@ -25,17 +25,6 @@
   <div class="brand"><b>VIBE</b> <em>FM</em> <span>Mk1</span> <small>Emulator · VIBE FM Protokoll 7</small></div>
   <nav class="tools" aria-label="Tools">
     <select id="fw" aria-label="Firmware"></select>
-    <button type="button" id="tb-rear" class="wide" title="Show or hide the rear panel connectors">Rear panel</button>
-    <button type="button" id="tb-in" class="wide" title="Microphone or audio interface: channel 1 = IN 1, channel 2 = IN 2">Audio input</button>
-    <button type="button" id="tb-media" class="wide" title="Media: folders the firmware may read (samples, songs) – click to pick one, or drop a folder onto the device">Media</button>
-    <button type="button" id="tb-midi" class="wide" title="USB MIDI: keyboard, Launchpad Mini MK3, BeatStep Pro …">MIDI</button>
-    <select id="midich" aria-label="MIDI channel" title="Global MIDI channel: only messages on this channel reach the firmware (pads on channel 10 and the controller mapping always apply)"><option value="0">Channel: all</option><option value="1">Channel 1</option><option value="2">Channel 2</option><option value="3">Channel 3</option><option value="4">Channel 4</option><option value="5">Channel 5</option><option value="6">Channel 6</option><option value="7">Channel 7</option><option value="8">Channel 8</option><option value="9">Channel 9</option><option value="10">Channel 10</option><option value="11">Channel 11</option><option value="12">Channel 12</option><option value="13">Channel 13</option><option value="14">Channel 14</option><option value="15">Channel 15</option><option value="16">Channel 16</option></select>
-    <select id="midiout" aria-label="MIDI out" title="SDK 9: where the firmware's MIDI out goes (notes, clock) – a port, or off"><option value="">MIDI out: off</option></select>
-    <button type="button" id="tb-setup" class="wide" title="Set up a controller: walks you through every VIBE control, you move the matching one on your controller">Setup</button>
-    <button type="button" id="tb-learn" class="wide" title="MIDI learn: tap a VIBE control, then move one on your controller. Shift+click clears all mappings">Learn</button>
-    <button type="button" id="tb-profile" class="wide" title="Save what Setup / Learn mapped as a controller profile (a .json file) – the same file works on the VIBE and in the plugin">Profile ↓</button>
-    <button type="button" id="tb-cheat" title="Cheat sheet of the running firmware, right of the device">Cheat sheet</button>
-    <button type="button" id="tb-help">Help</button>
     <label class="viewsel" title="Editor: every parameter at once · Full: the whole device · Rack: the device without keys and pads, the display bigger · Display: just the screen, pixel-exact">View
       <select id="tb-view">
         <option value="editor" hidden disabled>Editor</option>
@@ -44,6 +33,17 @@
         <option value="display">Display</option>
       </select>
     </label>
+    <button type="button" id="tb-rear" class="wide" title="Show or hide the rear panel connectors">Rear panel</button>
+    <button type="button" id="tb-in" class="wide" title="Microphone or audio interface: channel 1 = IN 1, channel 2 = IN 2">Audio input</button>
+    <button type="button" id="tb-media" class="wide" title="Media: folders the firmware may read (samples, songs) – click to pick one, or drop a folder onto the device">Media</button>
+    <button type="button" id="tb-midi" class="wide" title="USB MIDI: keyboard, Launchpad Mini MK3, BeatStep Pro …">MIDI</button>
+    <select id="midich" aria-label="MIDI channel" title="Global MIDI channel: only messages on this channel reach the firmware (pads on channel 10 and the controller mapping always apply)"><option value="0">Channel: all</option><option value="1">Channel 1</option><option value="2">Channel 2</option><option value="3">Channel 3</option><option value="4">Channel 4</option><option value="5">Channel 5</option><option value="6">Channel 6</option><option value="7">Channel 7</option><option value="8">Channel 8</option><option value="9">Channel 9</option><option value="10">Channel 10</option><option value="11">Channel 11</option><option value="12">Channel 12</option><option value="13">Channel 13</option><option value="14">Channel 14</option><option value="15">Channel 15</option><option value="16">Channel 16</option></select>
+    <select id="midiout" aria-label="MIDI out" title="SDK 9: where the firmware's MIDI out goes (notes, clock) – a port, or off"><option value="">MIDI out: off</option></select>
+    <button type="button" id="tb-setup" class="wide" title="Set up a controller: walks you through every VIBE control, you move the matching one on your controller">Setup</button>
+    <button type="button" id="tb-learn" class="wide" title="MIDI learn: tap a VIBE control, then move one on your controller. Shift+click clears all mappings">Learn</button>
+    <select id="ctlsel" class="wide" aria-label="Controller profile" title="Controller profiles: which one maps your controller, load one, save yours, share it – the same file works on the VIBE, in the plugin and here"></select>
+    <button type="button" id="tb-cheat" title="Cheat sheet of the running firmware, right of the device">Cheat sheet</button>
+    <button type="button" id="tb-help">Help</button>
     <button type="button" id="tb-full" aria-label="Full screen">⛶</button>
   </nav>
   <input type="file" id="fwfile" accept=".wasm" hidden>
@@ -77,6 +77,16 @@
 
 <aside id="cheat" class="cheat" aria-label="Firmware cheat sheet" hidden><p class="none">Power on – then this shows how to play the running firmware.</p></aside>
 
+<dialog id="ctldlg" class="help ctldlg" aria-labelledby="ctldlg-h">
+  <h2 id="ctldlg-h">Save your controller profile</h2>
+  <p class="note" id="ctldlg-note">What you just set up, as a profile – it maps your controller from now on, in every project.</p>
+  <form method="dialog" id="ctldlg-form">
+    <label>Your controller's name <input id="ctldlg-name" type="text" maxlength="60" placeholder="e.g. Arturia MiniLab 3" required></label>
+    <div class="ctldlg-btns"><button type="button" id="ctldlg-cancel">Not now</button> <button type="submit" id="ctldlg-save" class="go">Save</button></div>
+  </form>
+  <p class="note">Others with the same controller would love it: <b>Controller ▾ → Share yours …</b> sends it to us – we check it and put it into the next update for everyone.</p>
+</dialog>
+
 <dialog id="help" class="help">
   <h2>How to play VIBE</h2>
   <div class="cols">
@@ -108,7 +118,7 @@
       <ul>
         <li><b>Launchpad Mini MK3</b>: top left 4×4 = pads, top right = PLAY/STOP/REC/HOME and the six keys, bottom two octaves of keys, lights as on the device.</li>
         <li><b>MPK mini IV / MK3</b> (any preset, DAW too): K1–K4 = encoders 1–4, K5 = DATA, K6 = volume, K7 = A, K8 = B; pads = pads 1–8, bank B = 9–16; keys, pitch/mod wheel and sustain pedal go to the firmware. Buttons (only in the <b>DAW preset</b>): − / + step through the colour keys, MIXER, TRACKS, GLOBAL and MENU; TAP TEMPO = the chosen one again (pages through its area); Stop/Play = PLAY, Loop = STOP, Record = REC, Undo = HOME, Overdub = ENTER, SHIFT = SHIFT, push encoder = DATA. Black keys wrong? The MPK's Scales mode is on (SHIFT+pad 7 turns it off). Map it differently: <b>Setup</b>.</li>
-        <li><b>Any controller:</b> <b>Setup</b> walks you through it, <b>Profile ↓</b> saves the result as a controller profile – the same file works on the VIBE and in the plugin. With FOCUS, one knob with a push (DATA + ENTER) and HOME reach everything.</li>
+        <li><b>Any controller:</b> <b>Controller ▾ → Set up a new one …</b> walks you through it and keeps the result as a controller profile – the same file works on the VIBE, in the plugin and here. In the VIBE FM VST the controller plays into the DAW track and the plugin maps it, window open or closed. An <b>Akai MPK mini</b>: its <b>PLUGIN</b> preset (its DAW preset steers the DAW). <b>Share yours …</b> sends it to us for everyone. With FOCUS, one knob with a push (DATA + ENTER) and HOME reach everything.</li>
         <li><b>MIDI channel</b> (top bar): "all" passes every channel to the firmware; channel 1–16 only that one. Pads on channel 10 and the controller mappings (MPK, Launchpad, learned) always apply.</li>
         <li><b>BeatStep Pro</b> &amp; co.: drum pads (channel 10) = pads; knobs with <b>Learn</b>: tap a VIBE control, move one on the controller.</li>
       </ul>

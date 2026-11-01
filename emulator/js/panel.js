@@ -2,7 +2,7 @@
 // into SDK events (onEvent) and shows what the firmware tells it (display framebuffer, LEDs). No music logic here.
 // Layout = the 3D model's numbers (1600 x 860 px, 4 px = 1 mm).
 
-export const EV = { PAD: 1, KEY: 2, BUTTON: 3, ENCODER: 4, MIDI: 5, PEDAL: 6, CLOCK: 7, TRANSPORT: 8 };
+export const EV = { PAD: 1, KEY: 2, BUTTON: 3, ENCODER: 4, MIDI: 5, PEDAL: 6, CLOCK: 7, TRANSPORT: 8, TOUCH: 16 };
 export const BTN = { F1: 0, F2: 1, F3: 2, F4: 3, F5: 4, F6: 5, SHIFT: 6, OCT_DOWN: 7, OCT_UP: 8, ENTER: 9, K1: 10, K2: 11, K3: 12, K4: 13, K5: 14, K6: 15,
   RETURN: 16, HOME: 17, LEFT: 18, MENU: 19, RIGHT: 20, REC: 21, STOP: 22, PLAY: 23, DATA_PUSH: 24, COUNT: 25 };
 export const ENC = { E1: 0, E2: 1, E3: 2, E4: 3, A: 4, B: 5, DATA: 6, COUNT: 7 };
@@ -25,6 +25,62 @@ const BOX = {
   word: [150, 556],
 };
 const softX = (i) => L.disp.x + 12 + i * 57.2;
+
+// 31.10.2026: the display touched (the window only – the VIBE itself has no touch). Every native firmware draws the VIBE FM
+// layout (firmware/obervave/o3_draw.h, docs UI standard): under the page the soft keys (y 282-320, six fields of 80 px) –
+// a click presses F1-F6; above them four knob columns (x 10-470, 115 px each) – dragged up / down or scrolled, encoder 1-4
+// turns, as the knob above the display does. el: what takes the pointer, canvasOf(): the 480 x 320 picture in it, on():
+// only for a native firmware (a converted FM-1 one draws its own way) and not while the library is open
+// the firmware's 480 x 320 picture: sharp pixels once it has at least that many real pixels (a Retina Mac, the Rack view,
+// the big display) – soft when it is drawn smaller (nearest-neighbour would drop rows of a small font: ZVAMPLER's, 31.10.)
+export function crisp(canvas) {
+  const set = () => { const w = canvas.getBoundingClientRect().width * (window.devicePixelRatio || 1); canvas.style.imageRendering = w >= 479 ? 'pixelated' : 'auto'; };
+  if (window.ResizeObserver) new ResizeObserver(set).observe(canvas);
+  window.addEventListener('resize', set); set();
+}
+export function displayTouch(el, canvasOf, emit, on) {
+  let drag = null;
+  const at = (e) => {
+    const r = canvasOf().getBoundingClientRect();
+    return { x: (e.clientX - r.left) / r.width * 480, y: (e.clientY - r.top) / r.height * 320, inside: e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom };
+  };
+  const zone = (p) => (!p.inside ? null : p.y >= 282 ? { f: Math.min(5, Math.max(0, Math.floor(p.x / 80))) }
+    : p.y >= 40 && p.x >= 10 && p.x < 470 ? { c: Math.min(3, Math.floor((p.x - 10) / 115)) } : null);
+  // (SDK 18) a click anywhere else on the display – a firmware's own tabs at the top (ZVAMPLER) – goes to the firmware as
+  // VIBE_EV_TOUCH: id 0 down / 1 move / 2 up, value = y * 512 + x (display pixels; VIBE_TOUCH_X / _Y in vibe.h); on a knob
+  // column dragging turns the knob, a plain click (no turn) is a touch as well, down and up on release
+  const touch = (p, ph) => emit(EV.TOUCH, ph, ph < 2 ? 1 : 0, Math.round(clamp(p.y, 0, 319)) * 512 + Math.round(clamp(p.x, 0, 479)));
+  el.addEventListener('pointerdown', (e) => {
+    const p = on() ? at(e) : null; if (!p || !p.inside) return;
+    const z = zone(p);
+    e.preventDefault(); e.stopPropagation(); try { el.setPointerCapture(e.pointerId); } catch (x) { /* a pointer that is gone */ }
+    if (!z) { drag = { t: 1 }; touch(p, 0); }
+    else if (z.f !== undefined) { drag = { f: z.f }; emit(EV.BUTTON, BTN.F1 + z.f, 1, 0.9); }
+    else drag = { c: z.c, last: e.clientY, acc: 0, p, moved: false };
+  });
+  el.addEventListener('pointermove', (e) => {
+    if (drag && drag.c !== undefined) {
+      drag.acc += (drag.last - e.clientY) / 5; drag.last = e.clientY;
+      if (Math.abs(drag.acc) >= 0.25) { emit(EV.ENCODER, drag.c, 0, drag.acc); drag.acc = 0; drag.moved = true; }
+      return;
+    }
+    if (drag && drag.t) { touch(at(e), 1); return; }
+    if (!drag) { const p = on() ? at(e) : null, z = p && p.inside ? zone(p) : null; el.style.cursor = !p || !p.inside ? '' : !z || z.f !== undefined ? 'pointer' : 'ns-resize'; }
+  });
+  const end = (e) => {
+    if (!drag) return;
+    if (drag.f !== undefined) emit(EV.BUTTON, BTN.F1 + drag.f, 0, 0);
+    if (drag.t) touch(at(e), 2);
+    if (drag.c !== undefined && !drag.moved) { touch(drag.p, 0); touch(drag.p, 2); }   // (a click on a knob column, not dragged: the firmware's – a track, a list entry)
+    drag = null; e.stopPropagation();
+  };
+  el.addEventListener('pointerup', end); el.addEventListener('pointercancel', end);
+  el.addEventListener('click', (e) => { if (on() && at(e).inside) e.stopPropagation(); });   // (the big display: a touch is not "close")
+  el.addEventListener('wheel', (e) => {
+    const z = on() ? zone(at(e)) : null; if (!z || z.c === undefined) return;
+    e.preventDefault(); emit(EV.ENCODER, z.c, 0, -Math.sign(e.deltaY));
+  }, { passive: false });
+}
 const btnX = (i) => (i < 4 ? 40 + i * 100 : 480 + (i - 4) * 120);
 const trX = (i) => L.transport.x + i * (L.transport.w + L.transport.gap);
 const clamp = (v, a, b) => Math.min(b, Math.max(a, v));
@@ -64,10 +120,17 @@ export class Panel {
 
     // display: the firmware's 480 x 320 framebuffer, plus a host menu layer (firmware library)
     const well = this.well = h('div', 'well', dev, { left: px(L.disp.x), top: px(L.disp.y), width: px(L.disp.w), height: px(L.disp.h) });
-    this.canvas = h('canvas', 'screen', well); this.canvas.width = 480; this.canvas.height = 320;
+    this.canvas = h('canvas', 'screen', well); this.canvas.width = 480; this.canvas.height = 320; crisp(this.canvas);
     this.ctx = this.canvas.getContext('2d'); this.img = this.ctx.createImageData(480, 320);
     this.menu = h('div', 'dispmenu', well);
     h('div', 'glass', well);
+    // the display takes clicks (displayTouch) for a firmware of the VIBE FM layout: one with sound parameters (host.js
+    // touchOk) or one that names its soft keys (labelTouch, showLabels – DJ, ZVAMPLER: no parameters, the layout all the same)
+    this.touchOk = false; this.labelTouch = false; this.fm1 = false;
+    // (1.11., a bug report: a converted FM-1 firmware labels F1-F6 as well – SEQ, GLO, SAVE … –, so its picture took the
+    //  VIBE layout's zones: a click low in it pressed SAVE, a drag turned KNOB 1-4. It draws its own way: no clicks)
+    this.touchable = () => !this.fm1 && (this.touchOk || this.labelTouch);
+    displayTouch(well, () => this.canvas, (...a) => this.emit(...a), () => this.touchable() && !this.menu.classList.contains('on'));
 
     // buttons
     const button = (id, x, y, w, hh, label, cls) => {
@@ -228,6 +291,7 @@ export class Panel {
       this.bigCtx = this.bigCanvas.getContext('2d'); this.bigCtx.imageSmoothingEnabled = false;
       this.bigLabels = h('div', 'biglabels', this.bigEl); this.labelKey = null;
       this.bigEl.addEventListener('click', () => this.onBig && this.onBig(false));
+      displayTouch(this.bigCanvas, () => this.bigCanvas, (...a) => this.emit(...a), () => this.touchable());
     }
     this.big = on; if (this.bigEl) this.bigEl.classList.toggle('on', on);
     this.labelKey = null;                         /* (the captions line under the big display) */
@@ -254,6 +318,7 @@ export class Panel {
     const u = new Uint8Array(buf), txt = (id) => { let s = ''; for (let i = 0; i < 8 && u[id * 8 + i]; i++) s += String.fromCharCode(u[id * 8 + i]); return s; };
     let key = ''; const soft = [], keys = [];
     for (let i = 0; i < 6; i++) { soft.push(txt(BTN.F1 + i)); keys.push(txt(BTN.K1 + i)); }
+    this.labelTouch = soft.some(Boolean);             // (it names its soft keys: the VIBE FM layout – the display takes clicks)
     key = soft.join('|') + '/' + keys.join('|'); if (key === this.labelKey) return; this.labelKey = key;
     // the keys of the device carry no print (the display explains them, as on the hardware): the captions go to
     // the tooltips and the line under the big display only

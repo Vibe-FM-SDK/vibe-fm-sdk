@@ -219,6 +219,21 @@ the same sound. Jobs that only compute in a certain state (tracks set to a synth
 firmware's saved files) or `--script FILE` (a `wasmtest` script) – and `wasmtest` with `"jobs_reverse": true` must
 print the same `out_hash` as without.
 
+## New in SDK 18: clicks into the display
+
+In VIBE FM VST and in the emulator, the mouse can work your display. With FOCUS (SDK 10), a single `vf_clicks(1)` in
+`vibe_on_init` makes your `vf_button`s clickable and your `vf_value`s draggable. A firmware with its own zones, such as
+tabs at the top, gets `VIBE_EV_TOUCH` with x and y. The VIBE has no touch screen, so a click is always an extra. Needs
+VIBE FM VST 0.7.1.
+
+## New in SDK 19: one firmware, more than one device
+
+VIBE FM compatible devices may have more than the VIBE: up to 61 keys, 32 pads, eight more encoders, faders, more buttons,
+a bigger display. `vibe_device()` tells your firmware what is there. Every firmware stays fully playable on the base,
+"VIBE FM original", which is what the VIBE, the plugin and the emulator are today. Nothing changes for an existing
+firmware, and a firmware built with SDK 19 still loads everywhere. **[DEVICES.md](DEVICES.md)** has the details, also for
+anyone building such a device.
+
 ## Updates
 
 This repository is where the SDK grows: `git pull` brings new versions, the **issues** are the place for questions,

@@ -250,6 +250,13 @@ body.plugin .wordmark span { color: #FF60BE; font-weight: 800; }
 /* ---------- help ---------- */
 .help { max-width: min(760px, calc(100vw - 32px)); border: 1px solid var(--line); border-radius: 16px; background: #141518; color: var(--fg); padding: 26px 28px 22px; }
 .help::backdrop { background: rgba(0, 0, 0, 0.6); backdrop-filter: blur(2px); }
+/* 0.7.0: a controller profile saved after Setup / Learn */
+.ctldlg { max-width: min(460px, calc(100vw - 32px)); }
+.ctldlg label { display: grid; gap: 6px; font: 600 12px var(--sans); color: var(--muted); }
+.ctldlg input { padding: 9px 11px; border-radius: 8px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 600 14px var(--sans); }
+.ctldlg-btns { display: flex; justify-content: flex-end; gap: 8px; margin: 14px 0 6px; }
+.ctldlg-btns button { min-height: 34px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: #1c1f24; color: var(--fg); font: 600 13px var(--sans); cursor: pointer; }
+.ctldlg-btns button.go { background: var(--accent); border-color: var(--accent); color: #111214; }
 .help h2 { margin: 0 0 14px; font-size: 22px; font-weight: 800; }
 .help h3 { margin: 0 0 8px; font: 700 11px var(--mono); letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
 .help .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 26px; }
@@ -330,4 +337,30 @@ body.editing .stage, body.editing #status, body.editing .cheat, body.editing #ch
 @media (max-width: 760px) { .editor { grid-template-columns: 1fr; overflow-y: auto; } .ed-disp { width: 100%; height: auto; aspect-ratio: 3 / 2; } }
 
 /* the View dropdown (27.10.): Editor · Full · Rack · Display */
-.viewsel { display: inline-flex; align-items: center; gap: 7px; font: 600 13px var(--sans); color: var(--muted); padding: 0 4px 0 8px; }
+.viewsel { display: inline-flex; align-items: center; gap: 4px; font: 600 11px var(--sans); color: var(--muted); padding: 0 2px 0 4px; flex: none; }
+.tools .viewsel select { min-height: 28px; padding: 0 6px; font-size: 11.5px; max-width: 92px; }   /* (31.10.: right after the firmware, smaller) */
+/* the plugin: View on the left, right after the name (31.10.) */
+body.plugin .topbar { justify-content: flex-start; } body.plugin .topbar .tools { margin-left: auto; }
+body.plugin .topbar > .viewsel { padding: 4px 4px 4px 9px; border-radius: 10px; background: rgba(20, 21, 24, 0.8); border: 1px solid var(--line); }
+body.plugin .topbar > .viewsel select { min-height: 26px; padding: 0 6px; border-radius: 7px; background: #1c1f24; color: var(--fg); border: 1px solid var(--line); font: 600 11.5px var(--sans); max-width: 92px; }
+@media (max-width: 1100px) { body.plugin .brand small.claim { display: none; } }
+/* the plugin is an instrument, not a document: nothing to select (⌘A in the DAW's window blued the whole page – Mac, 31.10.)
+   – but text in a field; the tools scroll without a bar (WebKit draws one); the controller's name kept short */
+body.plugin, body.plugin * { -webkit-user-select: none; user-select: none; }
+body.plugin input, body.plugin textarea { -webkit-user-select: text; user-select: text; }
+.tools::-webkit-scrollbar { display: none; }
+#ctlsel { max-width: 170px; text-overflow: ellipsis; }
+/* the plugin's status line: readable (it says what Learn hears, what was loaded …) – and in the Editor too, at the bottom */
+body.plugin .status { font: 600 13px var(--sans); color: #C9CCD3; letter-spacing: 0.01em; }
+body.plugin.editing #status { display: block !important; position: fixed; left: 12px; right: 12px; bottom: 6px; z-index: 20; margin: 0;
+  padding: 5px 10px; border-radius: 8px; background: rgba(20, 21, 24, 0.92); border: 1px solid var(--line); pointer-events: none; }
+body.plugin.editing #status:empty { display: none !important; }
+/* 0.7.0 – the controller in the Editor: the focused card (its parameters on the controller's encoders, each control
+   marked 1 2 3 4 A B DATA), a dot on a learned control, the right click's menu */
+.ed-card.ed-focus { box-shadow: 0 0 0 2px var(--ed-acc, #FF60BE), 0 0 22px rgba(255, 96, 190, 0.12); position: relative; }
+.ed-ctl { position: relative; }
+.ed-ctl[data-enc]::before { content: attr(data-enc); position: absolute; top: -2px; left: 2px; padding: 0 4px; border-radius: 4px; background: var(--ed-acc, #FF60BE); color: #111214; font: 800 9px var(--mono); line-height: 13px; }
+.ed-ctl.ed-learned::after { content: ''; position: absolute; top: 2px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: #5FE3A1; box-shadow: 0 0 6px #5FE3A1; }
+.ed-learnmenu { position: fixed; z-index: 60; display: grid; min-width: 220px; padding: 5px; border-radius: 10px; background: #1c1f24; border: 1px solid var(--line); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5); }
+.ed-learnmenu button { text-align: left; padding: 8px 10px; border: 0; border-radius: 6px; background: transparent; color: var(--fg); font: 600 12.5px var(--sans); cursor: pointer; }
+.ed-learnmenu button:hover { background: #2a2d33; }

@@ -48,7 +48,56 @@ export class Editor {
   async show(on) {
     this.el.hidden = !on;
     clearInterval(this.timer); this.timer = 0;
-    if (on) { await this.reload(); this.timer = setInterval(() => this.poll(), 120); }
+    // (50 ms: a controller's knob moves the Editor smoothly – 120 looked stepped)
+    if (on) { await this.reload(); this.timer = setInterval(() => this.poll(), 50); }
+    else this.focusSend([]);                          // (0.7.0: the controller's encoders back to the firmware)
+  }
+  // 0.7.0 – the controller in the Editor. The focused card (the one clicked, at first the first): the controller
+  // profile's encoders 1-4, A, B turn its parameters, in its order, DATA walks the cards (the plugin does it: vibe_ctl_focus). And
+  // MIDI-Learn: a right click on a control – the next knob moved on the controller turns it from then on, in the profile
+  // (host.js: learnParam), window open or closed; the learned ones carry a dot
+  focusSend(list) { if (this.b.vibe_ctl_focus) this.b.vibe_ctl_focus(list); }
+  focusCard(c, page = 0) {
+    if (!this.cardEls) return;
+    if (!this.cardEls.has(c)) c = this.cardEls.keys().next().value;
+    // (Sven: 1-4 the card's knobs – not its rows of buttons; 5 its tabs: the first of those, a choice)
+    const all = (this.cardParams.get(c) || []).map((i) => this.params[i]).filter(Boolean);
+    const knobs = all.filter((p) => !this.isChoice(p)).map((p) => p.i), choice = all.find((p) => this.isChoice(p));
+    this.focus = c;
+    for (const [k, el] of this.cardEls) el.classList.toggle('ed-focus', k === c);
+    const list = [0, 1, 2, 3].map((k) => (knobs[k] ?? -1)).concat([choice ? choice.i : -1]);
+    this.focusSend(list);
+    const el = this.cardEls.get(c); if (!el) return;
+    const names = ['1', '2', '3', '4', '5'];
+    el.querySelectorAll('.ed-ctl').forEach((b) => { const k = list.indexOf(+b.dataset.pi); if (k >= 0) b.dataset.enc = names[k]; else delete b.dataset.enc; });
+    for (const [k, e2] of this.cardEls) if (k !== c) e2.querySelectorAll('.ed-ctl[data-enc]').forEach((b) => { delete b.dataset.enc; });
+  }
+  isChoice(p) {                                     // a row of buttons, a toggle, a menu – what the controller's 5 steps
+    const ctl = this.ed && this.ed.controls ? this.ed.controls[p.i] | 0 : 0;
+    return ctl === 2 || ctl === 3 || !!(p.choices && p.choices.length) || (p.steps > 1 && p.steps <= 24);
+  }
+  // a track tab chosen (a click, the controller's 7): the firmware's selected track follows (SDK 11: mix_select) – its
+  // DATA then changes that track's preset
+  selectTrack(t) {
+    const p = this.params.find((x) => x.id === 'mix_select');
+    if (p && /^[A-Z]$/.test(t)) { const n = t.charCodeAt(0) - 64; if (n >= p.min && n <= p.max) this.set(p, n); }
+  }
+  // the controller (vibe_ctl_focus): its B the next / previous card, knob 7 the next track (tab)
+  focusMove(cards, pages, tabs) {
+    if (tabs) {
+      const bs = [...this.tabs.children]; if (bs.length > 1) { const i = Math.max(0, bs.findIndex((b) => b.classList.contains('on'))); bs[((i + tabs) % bs.length + bs.length) % bs.length].click(); }
+    }
+    if (!this.cardEls || !this.cardEls.size) return;
+    if (cards) {
+      const keys = [...this.cardEls.keys()], i = Math.max(0, keys.indexOf(this.focus));
+      const c = keys[((i + cards) % keys.length + keys.length) % keys.length];
+      this.focusCard(c); this.cardEls.get(c)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    }
+    if (pages) this.focusCard(this.focus, (this.fpage || 0) + pages);
+  }
+  learned(ids) {                                      // the parameters a controller turns (their ids): a dot on them
+    this.learnedIds = new Set(ids || []);
+    this.main.querySelectorAll('.ed-ctl').forEach((b) => { const p = this.params[+b.dataset.pi]; b.classList.toggle('ed-learned', !!p && this.learnedIds.has(p.id)); });
   }
   // the firmware changed (or the Editor opened): its list again
   async reload() {
@@ -63,7 +112,7 @@ export class Editor {
     this.tabs.textContent = '';
     if (tabs.length > 1) for (const t of tabs) {
       const b = h('button', 'ed-tab' + (t === this.tab ? ' on' : ''), this.tabs, t || 'ALL');
-      b.addEventListener('click', () => { this.tab = t; this.reloadView(); [...this.tabs.children].forEach((c) => c.classList.toggle('on', c === b)); });
+      b.addEventListener('click', () => { this.tab = t; this.reloadView(); [...this.tabs.children].forEach((c) => c.classList.toggle('on', c === b)); this.selectTrack(t); });
     }
     this.note.textContent = !list.length ? 'This firmware declares no parameters – play it in the device view.'
       : list.length <= 7 && list.every((p) => !p.group) ? 'A converted FM-1 firmware: its seven knobs. Its own pages are on the device view.'
@@ -147,8 +196,11 @@ export class Editor {
     this.params.forEach((p, n) => { if (this.tabOf(p) === this.tab && !order.has(this.cardOf(p))) order.set(this.cardOf(p), n); });
     for (const b of this.ed?.buttons || []) if (!order.has(b.card)) order.set(b.card, this.params.length + b.i);   // (SDK 15: a card of buttons only)
     const sorted = [...order.keys()].sort((a, b) => this.rank(a, order.get(a)) - this.rank(b, order.get(b)));
+    this.cardEls = new Map(); this.cardParams = new Map();
     for (const c of sorted) {
       const card = h('div', 'ed-card', this.main); h('h3', '', card, (this.tab ? this.tab + ' · ' : '') + c);
+      this.cardEls.set(c, card); this.cardParams.set(c, this.params.filter((p) => this.tabOf(p) === this.tab && this.cardOf(p) === c).map((p) => p.i));
+      card.addEventListener('pointerdown', () => { if (this.focus !== c) this.focusCard(c); }, true);   // (the controller follows the card you touch)
       const d = this.ed && this.ed.cards.find((x) => x.card === c);
       if (d) { card.style.gridColumn = `span ${d.width >= 1 && d.width <= 12 ? d.width : 4}`; if (d.note) h('p', 'ed-cnote', card, d.note); }
       else if (this.ed && this.ed.cards.length) card.style.gridColumn = 'span 4';
@@ -174,6 +226,8 @@ export class Editor {
       }
       const k = this.control(p, cards.get(c), ctl); k.update(p.v); this.knobs.set(p.i, k);
     }
+    this.focusCard(this.focus);                       // (the same card again, else the first)
+    if (this.learnedIds) this.learned([...this.learnedIds]);
     this.pollCurves(true);
   }
   // (SDK 9) a card's curve: asked from the plugin, which makes it on the audio thread – polled until it answers,
@@ -243,7 +297,8 @@ export class Editor {
   // a control: a knob, or for named steps a row of buttons (up to 6) or a menu – or what the firmware asked for (SDK 9,
   // ctl: 1 slider, 2 toggle, 3 menu, 4 bipolar knob)
   control(p, parent, ctl = 0) {
-    const box = h('div', 'ed-ctl', parent);
+    const box = h('div', 'ed-ctl', parent); box.dataset.pi = p.i;
+    box.addEventListener('contextmenu', (e) => { if (!this.onLearn) return; e.preventDefault(); this.onLearn(p, e.clientX, e.clientY); });
     const short = this.short(p);
     if (this.ed && this.ed.help && this.ed.help[p.i]) box.title = this.ed.help[p.i];
     if (ctl === 2 && (p.steps === 2 || (p.choices && p.choices.length === 2))) {   // a toggle: one button, lit when on

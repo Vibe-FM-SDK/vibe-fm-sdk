@@ -37,7 +37,7 @@ const isSidePort = (name) => isMpk(name) && /Plugin|Software|Control|DIN|MIDI [3
 const isDawPort = (name) => isMpk(name) && /DAW|MIDI 2\b/i.test(name || '');
 // controller profiles (VIBE FM Protokoll 15a, 28.10.2026): controllers.json = the SDK's controllers/*.json. A profile maps a
 // controller's CCs / notes to VIBE controls; the same file works on the VIBE, in the plugin and here. What is learned here
-// (Setup, Learn) is exported in the same format ("Profile ↓").
+// (Setup, Learn) is exported in the same format ("Controller ▾ → Save yours ↓"; the plugin keeps it in its Controllers folder).
 const ENC_ID = { 1: ENC.E1, 2: ENC.E2, 3: ENC.E3, 4: ENC.E4, A: ENC.A, B: ENC.B, DATA: ENC.DATA };
 const ENC_NAME = ['1', '2', '3', '4', 'A', 'B', 'DATA'];
 const BTN_NAME = Object.keys(BTN).filter((k) => k !== 'COUNT');
@@ -70,7 +70,15 @@ export class Controllers {
     window.addEventListener('beforeunload', () => this.lpMode(0));
     this.profiles = []; this.onLibrary = null; this.onParam = null;
     this.mix = new Map(); this.mixv = []; this.pick = new Map(); this.ledSent = new Map(); this.faderT = new Map();
-    fetch('controllers.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : [])).then((p) => { this.profiles = Array.isArray(p) ? p : []; if (this.access) this.wire(); }).catch(() => {});
+    fetch('controllers.json', { cache: 'no-cache' }).then((r) => (r.ok ? r.json() : [])).then((p) => { this.builtin = Array.isArray(p) ? p : []; this.profiles = [...this.own(), ...this.builtin]; if (this.access) this.wire(); }).catch(() => {});
+  }
+  // (0.7.0) profiles loaded into this browser ("Load a profile …"): kept here, before the built-in ones (an own one wins)
+  own() { try { const l = JSON.parse(localStorage.getItem('vibe.profiles') || '[]'); return Array.isArray(l) ? l : []; } catch (e) { return []; } }
+  addOwn(p) {
+    if (!Array.isArray(p.match) || !p.match.length) p.match = [p.name];
+    const l = this.own().filter((x) => x.name !== p.name); l.unshift(p);
+    try { localStorage.setItem('vibe.profiles', JSON.stringify(l)); } catch (e) { /* private mode */ }
+    this.profiles = [...l, ...(this.builtin || [])]; if (this.access) this.wire();
   }
   profileOf(dev) {   // the first profile whose "match" is part of the port's name
     const d = (dev || '').toLowerCase();
@@ -182,6 +190,9 @@ export class Controllers {
   // ---------------------------------------------------------------- everything else: drum pads, MIDI-Learn
   generic(dev, d) {
     const st = d[0] & 0xF0, ch = d[0] & 15, n = d[1], v = d[2] ?? 0;
+    // the VIBE FM Plugin (0.7.0): the controller plays into the DAW, the plugin applies its profile itself (vibe_controller.cpp,
+    // window open or closed); here only Setup / Learn, from the DAW's MIDI the plugin hands over ("DAW")
+    if (this.plugin && (dev !== 'DAW' || (!this.learning && !this.wiz))) return;
     if (!this.learning && !this.wiz && this.onRaw && this.onRaw(d)) return;
     // transport of a hardware sequencer (BeatStep Pro, drum machines, DAWs): MIDI clock, Start/Continue, Stop – to the
     // firmware as TRANSPORT (SDK 7, as the VIBE FM Plugin and the device do); older firmwares: PLAY / STOP
@@ -354,13 +365,15 @@ export class Controllers {
     let mode = this.mode.get(key);
     const last = this.last.get(key); this.last.set(key, v);
     const h = this.hist.get(key) || []; h.push(v); if (h.length > 4) h.shift(); this.hist.set(key, h);
-    // relative knobs repeat a value (65, 65, 65 …) or sit on both sides of their centre (63 / 65, 127 / 1);
-    // an absolute knob sends ever new values – it is never the same twice and does not jump across the centre
-    const twice = h.length >= 2 && h[h.length - 1] === h[h.length - 2];
-    const both = (f, lo) => h.every(f) && h.some((x) => x < lo) && h.some((x) => x > lo);
-    if (mode !== 'rel64' && mode !== 'rel2c') {
-      if ((twice && REL64(v)) || both(REL64, 64)) mode = 'rel64';
-      else if ((twice && REL2C(v)) || both(REL2C, 64)) mode = 'rel2c';
+    // (31.10., from an MPK mini in both presets: as vibe_controller.cpp knobDelta) 16-56 / 72-112: absolute, settled; a jump
+    // across the ends (127 → 1): relative, settled; a value repeated at once: relative – a known absolute one: three alike
+    {
+      const outside = (v >= 16 && v <= 56) || (v >= 72 && v <= 112);
+      const wrap = last !== undefined && Math.abs(v - last) > 100 && REL2C(v) && REL2C(last);
+      const seen = h.length >= 2 && h[h.length - 2] === v, three = h.length >= 3 && h[h.length - 2] === v && h[h.length - 3] === v;
+      if (outside) mode = 'abs';
+      else if (wrap) mode = 'rel2c';
+      else if (mode !== 'abs' ? seen : three) mode = REL64(v) ? 'rel64' : REL2C(v) ? 'rel2c' : mode;
       else if (!mode && h.length >= 3) mode = 'abs';
       if (mode) this.mode.set(key, mode);
       if (!mode) return last === undefined || Math.abs(v - last) > 12 ? 0 : v - last;
@@ -449,12 +462,7 @@ export class Controllers {
     c.bpm = bpm; this.transport(1, 0, bpm); this.activity('MIDI clock: ' + bpm.toFixed(1) + ' BPM');
   }
   save() { try { localStorage.setItem('vibe.midimap', JSON.stringify(this.bind)); } catch (e) { /* private mode */ } this.claim(); }
-  // the VIBE FM Plugin: the CCs mapped here (the MPK's knobs and buttons, learned ones) do not reach the firmware from the DAW as well
-  claim() {
-    if (!this.plugin || !window.vibe_midi_claim) return;
-    const cc = new Set();
-    if (this.hasMpk) { for (let i = 0; i < 8; i++) cc.add(24 + i); [12, 13, 14, 17, 73, 74, 76, 77, 78, 80, 81, 82].forEach((c) => cc.add(c)); }
-    Object.keys(this.bind).forEach((k) => { const f = k.split('|'); if (f[1] === 'c') cc.add(+f[3]); });
-    window.vibe_midi_claim([...cc]);
-  }
+  // the VIBE FM Plugin: nothing held back from the DAW's MIDI any more – the plugin applies the profile itself (0.7.0;
+  // before, the window mapped the controller and the plugin dropped those CCs)
+  claim() { if (this.plugin && window.vibe_midi_claim) window.vibe_midi_claim([]); }
 }

@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 17       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 19       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -55,7 +55,15 @@
                                       between it and the firmware (vibe_editor_post, VIBE_EV_EDITOR_DATA).
                                       17 (31.10.2026): worker jobs (VIBE_JOBS, vibe_jobs_begin / _wait – Protokoll 8):
                                       independent parts of a block on other cores. No new import: a host without workers
-                                      (the plugin, the browser, an older VIBE) runs them in line, bit for bit the same. */
+                                      (the plugin, the browser, an older VIBE) runs them in line, bit for bit the same.
+                                      18 (31.10.2026): clicks into the display (VIBE_EV_TOUCH, x / y) – the plugin's and the
+                                      browser's window, wherever the VIBE FM layout's zones (soft keys, knob columns) are not:
+                                      a firmware's own tabs at the top. The VIBE has no touch screen: it never sends one.
+                                      19 (1.11.2026): device layouts (DEVICES.md) – "VIBE FM original"
+                                      is the base every firmware must work with; a VIBE FM compatible device may have more
+                                      (keys up to 61, encoders VE_X1-8, faders VIBE_EV_FADER, buttons VB_X1-16, pads up to
+                                      32, a bigger display): vibe_device() says what is there. No new import (op 14): a
+                                      host that does not answer – the VIBE, the plugin, the browser today – is the base. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -79,11 +87,13 @@ enum vibe_button {
   VB_LEFT, VB_MENU, VB_RIGHT,
   VB_REC, VB_STOP, VB_PLAY,
   VB_DATA_PUSH,
-  VB_COUNT
+  VB_COUNT,
+  VB_X1 = 64                                                 /* SDK 19: a device's extra buttons VB_X1 .. VB_X1 + 15 (vibe_device) */
 };
 
 /* endless encoders (event id for VIBE_EV_ENCODER). No LED rings: values belong on the display. */
-enum vibe_encoder { VE_1, VE_2, VE_3, VE_4, VE_A, VE_B, VE_DATA, VE_COUNT };
+enum vibe_encoder { VE_1, VE_2, VE_3, VE_4, VE_A, VE_B, VE_DATA, VE_COUNT,
+                   VE_X1 = 16 };                            /* SDK 19: a device's extra encoders VE_X1 .. VE_X1 + 7 (vibe_device) */
 
 typedef enum {
   VIBE_EV_PAD = 1,      /* id 0..15,  down 1/0, value = velocity 0..1 (on release: 0) */
@@ -114,6 +124,12 @@ typedef enum {
                            the bytes in vibe_sysex_in() – valid during this event only */
   VIBE_EV_EDITOR_DATA = 15,   /* SDK 16: bytes from your own Editor page (vibe.send in its JavaScript): value = their
                            length, the bytes in vibe_editor_data() – valid during this event only */
+  VIBE_EV_TOUCH = 16,   /* SDK 18: a click into the display (plugin, browser – never on the VIBE): id VIBE_TOUCH_DOWN / _MOVE /
+                           _UP, down 1 while held, value = y * 512 + x in display pixels (VIBE_TOUCH_X / VIBE_TOUCH_Y). Not on
+                           the soft keys (y 282-320: F1-F6); on the knob columns (y 40-282) a drag turns the knob and a plain
+                           click comes as DOWN + UP when let go. Only for a firmware of the VIBE FM layout (sound parameters
+                           or named soft keys) */
+  VIBE_EV_FADER = 17,   /* SDK 19: a device's fader or pot (vibe_device: faders), id 0..15, value its position 0..1 (absolute) */
   VIBE_EV_TRANSPORT = 8 /* SDK 7: the host's transport (the DAW in the plugin; a MIDI clock on the device and in the browser): id VIBE_TRANSPORT_PLAY: down 1 = it plays
                            (from the top, at this frame), 0 = it stopped; id VIBE_TRANSPORT_TEMPO: value = BPM (0 = the host
                            gives none any more: the firmware's own tempo again). Sent when it changes, tempo before play. */
@@ -121,6 +137,23 @@ typedef enum {
 
 enum vibe_transport { VIBE_TRANSPORT_PLAY, VIBE_TRANSPORT_TEMPO };   /* ids of VIBE_EV_TRANSPORT (SDK 7) */
 enum vibe_pedal { VIBE_PEDAL_SWITCH, VIBE_PEDAL_EXPR };
+enum vibe_touch { VIBE_TOUCH_DOWN, VIBE_TOUCH_MOVE, VIBE_TOUCH_UP };   /* ids of VIBE_EV_TOUCH (SDK 18) */
+#define VIBE_TOUCH_X(e) ((int)(e)->value % 512)
+#define VIBE_TOUCH_Y(e) ((int)(e)->value / 512)
+
+/* SDK 19: the device the firmware runs on (DEVICES.md). Ask in vibe_on_init; it does not change while
+   the firmware runs. Every firmware stays fully playable with the base, "VIBE FM original" (25 keys, 16 pads, VE_1..VE_DATA,
+   F1-F6, K1-K6, the transport, 480 x 320): what is more is a shortcut, never the only way to a function.
+   keys: 25..61 (VIBE_EV_KEY ids 0..keys-1) · pads: 16..32 · encoders_extra: 0..8 (VE_X1 ..) · faders: 0..16
+   (VIBE_EV_FADER) · buttons_extra: 0..16 (VB_X1 ..) · display_w / _h: the device's display (480 x 320 or more; the
+   picture is always 480 x 320 – the host scales it) · touch: 1 = the display takes clicks (VIBE_EV_TOUCH, native only) */
+typedef struct {
+  uint8_t keys, pads, encoders_extra, faders, buttons_extra, touch, reserved[10];
+  uint16_t display_w, display_h;
+  char name[32];                                          /* the device's name, e.g. "VIBE FM Mk1" */
+} vibe_device_info;
+int vibe_device(vibe_device_info *info);                 /* 1 = the host described it; 0 = a host without SDK 19: the base
+                                                            (filled in all the same) */
 enum vibe_note_source { VIBE_NOTE_KEYS, VIBE_NOTE_PADS, VIBE_NOTE_MIDI, VIBE_NOTE_HOST };   /* SDK 8 */
 
 typedef struct {
@@ -136,7 +169,7 @@ void vibe_on_init(float sample_rate);                                   /* once,
 void vibe_on_event(const vibe_event *e);                                /* a control moved */
 void vibe_on_audio(const float *in, float *out_l, float *out_r, int frames); /* in = IN 1, NULL while off
                                                                            (IN 2: vibe_input(1)) */
-void vibe_on_draw(uint16_t *fb);                                        /* paint the whole display, RGB565 */
+void vibe_on_draw(uint16_t *vibe_fb);                                       /* paint the whole display, RGB565 */
 
 /* ---- what the SDK gives a firmware ------------------------------------------------------------------------------ */
 /* lights: colours are 0xRRGGBB, level 0..1 (0 = off) */

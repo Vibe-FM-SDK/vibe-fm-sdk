@@ -83,6 +83,21 @@ int vibe_store_read(const char *n, void *d, int max) { int l = store_name(n); re
 int vibe_store_write(const char *n, const void *d, int bytes) { int l = store_name(n); return l && bytes >= 0 ? vibe_host_store(1, n, l, (void *)d, bytes) : -1; }
 int vibe_store_size(const char *n) { int l = store_name(n); return l ? vibe_host_store(2, n, l, 0, 0) : -1; }
 int vibe_store_delete(const char *n) { int l = store_name(n); return l ? vibe_host_store(3, n, l, 0, 0) : -1; }
+/* SDK 19: the device (op 14, the host fills the struct as it is laid out in vibe.h); no answer = the base, VIBE FM original */
+int vibe_device(vibe_device_info *info)
+{
+  if (!info) return 0;
+  vibe_device_info b; uint8_t *p = (uint8_t *)&b; for (unsigned i = 0; i < sizeof b; i++) p[i] = 0;
+  b.keys = VIBE_KEYS; b.pads = VIBE_PADS; b.display_w = 480; b.display_h = 320;
+  const char *n = "VIBE FM"; for (int i = 0; n[i]; i++) b.name[i] = n[i];
+  vibe_device_info h = b;
+  int r = vibe_host_store(14, "", 0, &h, (int)sizeof h);
+  if (r > 0 && h.keys >= VIBE_KEYS && h.keys <= 61 && h.pads >= VIBE_PADS && h.pads <= 32 && h.encoders_extra <= 8
+      && h.faders <= 16 && h.buttons_extra <= 16 && h.display_w >= 480 && h.display_h >= 320) {
+    h.name[sizeof h.name - 1] = 0; *info = h; return 1;   /* (a host's answer only when it keeps the base) */
+  }
+  *info = b; return 0;
+}
 int vibe_store_list(char *buf, int max) { return buf && max > 0 ? vibe_host_store(4, "", 0, buf, max) : -1; }
 int vibe_store_read_at(const char *n, int off, void *d, int bytes) {
   int l = store_name(n); if (!l || off < 0 || bytes < 4) return -1;   /* (4 bytes at least: the offset travels in them) */
@@ -335,8 +350,46 @@ void vf_enable(int on) { vf_off = !on; if (vf_off) vf_edit = 0; }
 int vf_focus(void) { return vf_cur; }
 int vf_editing(void) { return vf_edit; }
 void vf_set_focus(int id) { vf_cur = id; vf_edit = 0; vf_acc = 0; }
+/* SDK 18: a click (VIBE_EV_TOUCH) on a control of the last frame – a button is pressed, a stand-in key pressed and let go;
+ * a slider (at least three times as wide as high) takes the value where it is clicked and dragged, a small value cell is
+ * edited (DATA turns it, dragging up / down too), a stand-in encoder as well. A click on no control: VF_NO, the firmware's.
+ * Opt-in: vf_clicks(1) in vibe_on_init (VIBE DJ, 31.10.) – without it a click stays VF_NO, as before */
+static int vf_drag = -1, vf_y0, vf_clk; static float vf_v0;
+void vf_clicks(int on) { vf_clk = on; }
+static int vf_touch_set(const vf_item *t, int x, int y, int *id)
+{
+  float n;
+  if (t->w >= 3 * t->h) { n = t->lo + (float)(x - t->x) / (float)(t->w > 1 ? t->w : 1) * (t->hi - t->lo); if (t->step > 0) n = t->lo + (float)(int)((n - t->lo) / t->step + 0.5f) * t->step; }
+  else n = vf_v0 + (float)(vf_y0 - y) * (t->hi - t->lo) / 150.0f;   /* (a cell: 150 px up = the whole range) */
+  if (n < t->lo) n = t->lo; if (n > t->hi) n = t->hi;
+  if (n == *t->v) return VF_MOVED;
+  *t->v = n; if (id) *id = t->id; return VF_CHANGED;
+}
+static int vf_touch(const vibe_event *e, int *id)
+{
+  int x = VIBE_TOUCH_X(e), y = VIBE_TOUCH_Y(e);
+  if (e->id != VIBE_TOUCH_DOWN) {                /* moved or let go: the value being dragged */
+    if (vf_drag < 0) return VF_NO;
+    int j = vf_index(vf_drag); if (e->id == VIBE_TOUCH_UP) vf_drag = -1;
+    return j < 0 || !VF[j].v || e->id == VIBE_TOUCH_UP ? VF_MOVED : vf_touch_set(&VF[j], x, y, id);
+  }
+  vf_drag = -1;
+  for (int j = vf_n - 1; j >= 0; j--) {          /* (the last drawn lies on top) */
+    const vf_item *t = &VF[j];
+    if (x < t->x - 3 || x >= t->x + t->w + 3 || y < t->y - 3 || y >= t->y + t->h + 3) continue;
+    vf_cur = t->id; vf_edit = 0; vf_acc = 0;
+    if (t->id >= VF_KEY) { vibe_event k = { VIBE_EV_BUTTON, (uint8_t)(t->id - VF_KEY), 1, { 0, 0, 0 }, 0 }; vibe_on_event(&k); k.down = 0; vibe_on_event(&k); return VF_MOVED; }
+    if (t->id >= VF_ENC) { vf_edit = 1; if (vf_md == VF_ON_HOLD) vf_on = 1; return VF_MOVED; }
+    if (!t->v) { if (id) *id = t->id; return VF_PRESS; }
+    vf_drag = t->id; vf_y0 = y; vf_v0 = *t->v;
+    if (t->w >= 3 * t->h) return vf_touch_set(t, x, y, id);
+    vf_edit = 1; if (vf_md == VF_ON_HOLD) vf_on = 1; return VF_MOVED;
+  }
+  return VF_NO;
+}
 int vf_event(const vibe_event *e, int *id)
 {
+  if (e->type == VIBE_EV_TOUCH) return vf_off || !vf_n || !vf_clk ? VF_NO : (vf_t = vibe_frames(), vf_touch(e, id));
   if (vf_off || !vf_n || !vf_active()) return VF_NO;
   vf_t = vibe_frames();
   int i = vf_index(vf_cur);

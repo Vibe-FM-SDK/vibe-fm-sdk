@@ -149,6 +149,24 @@ with `vibe_param_set` (compare once per block). Never write controller-specific 
 - -1 = gone (a stick pulled): show it, never crash. `VIBE_MEDIA_EV_SOURCES` says a source came or went.
 - Example: `examples/example-media`. `vibe-check` pulls a stick halfway through its run.
 
+## SDK 18: clicks into the display (plugin and emulator, never the VIBE)
+
+- With FOCUS, add `vf_clicks(1)` in `vibe_on_init`. A click then presses a `vf_button`, sets a slider-shaped `vf_value`
+  (at least three times as wide as high) where it is clicked or dragged, and edits a smaller value with a vertical drag.
+  Nothing else to write.
+- Your own zones: `VIBE_EV_TOUCH` (id `VIBE_TOUCH_DOWN` / `_MOVE` / `_UP`, `VIBE_TOUCH_X(e)`, `VIBE_TOUCH_Y(e)`). The soft
+  keys (y 282–320) never send one. On the knob columns, a drag turns the knob and a plain click arrives as DOWN + UP.
+- A click is always an extra: everything stays playable with the controls. Needs VIBE FM VST 0.7.1.
+
+## SDK 19: other devices (`DEVICES.md`)
+
+- Every firmware must be fully playable on the base, "VIBE FM original" (25 keys, 16 pads, the seven encoders, the
+  buttons, 480 × 320). That is the VIBE, the plugin and the emulator today.
+- `vibe_device(&info)` in `vibe_on_init` says whether the device has more: keys up to 61, pads up to 32, extra encoders
+  `VE_X1`…, faders `VIBE_EV_FADER`, extra buttons `VB_X1`…, a bigger display. Use the extras as shortcuts, never as the only
+  way to a function. Ignore ids you do not use. Always draw 480 × 320.
+- Do not call `vibe_device()` from `vibe_on_audio`.
+
 ## Patterns that work
 
 - **Voices**: a fixed `static voice V[N]`; note on → a free voice, else the oldest; per sample `vd_saw(phase, dt)` (band-

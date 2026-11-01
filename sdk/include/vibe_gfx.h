@@ -18,7 +18,7 @@ enum vg_font { VG_SMALL, VG_BOLD, VG_MED, VG_BIG, VG_HUGE, VG_LOGO, VG_FONT_COUN
 
 enum vg_align { VG_LEFT, VG_CENTER, VG_RIGHT };
 
-void vg_begin(uint16_t *fb);                                  /* every vg_* call draws into this framebuffer */
+void vg_begin(uint16_t *vibe_fb);                                 /* every vg_* call draws into this framebuffer */
 void vg_clear(uint32_t rgb);
 void vg_rect(int x, int y, int w, int h, uint32_t rgb);
 void vg_rect_a(int x, int y, int w, int h, uint32_t rgb, float alpha);
@@ -51,6 +51,9 @@ uint32_t vg_mix(uint32_t a, uint32_t b, float t);             /* blend two 0xRRG
  *                   r == VF_PRESS   button id pressed
  *                   r == VF_CHANGED value id changed (already written – do what a change needs: a filter's coefficients …)
  * vf_event takes: DATA turned (moves, or changes while editing), ENTER and DATA pressed, RETURN while editing.
+ *   SDK 18, opt-in with vf_clicks(1) in vibe_on_init: and a click into the display (VIBE_EV_TOUCH: plugin, browser) on one
+ *   of the controls – a button is pressed, a slider (three times as wide as high) takes the value where it is clicked, a
+ *   smaller value is edited (DATA, dragging). A click on no control stays VF_NO.
  * vf_enable(0) while a page of the firmware uses DATA / ENTER itself (a list): everything passes, no frame is drawn.
  *
  * Two modes (vf_mode, in vibe_on_init):
@@ -84,5 +87,6 @@ void vf_set_focus(int id);
  * or press, as always. The frame stays when SHIFT is let go (DATA then walks it alone, the MPK's knob press works); it
  * goes with RETURN, ENTER held, or 6 s without a touch. Call once in vibe_on_init. */
 void vf_shift_walk(int on);
+void vf_clicks(int on);                                       /* SDK 18: clicks on the controls (opt-in, see above) */
 
 #endif
