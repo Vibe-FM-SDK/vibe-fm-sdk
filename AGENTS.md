@@ -166,6 +166,8 @@ with `vibe_param_set` (compare once per block). Never write controller-specific 
   `VE_X1`…, faders `VIBE_EV_FADER`, extra buttons `VB_X1`…, a bigger display. Use the extras as shortcuts, never as the only
   way to a function. Ignore ids you do not use. Always draw 480 × 320.
 - Do not call `vibe_device()` from `vibe_on_audio`.
+- SDK 20: the pads are a grid, `pad_cols` × `pad_rows` (up to 128 pads). Use more than pads 0–15 only as an extra
+  (a 64-step view, a clip grid), always also reachable on the 4 × 4; show the grid's state on the display too.
 
 ## Patterns that work
 

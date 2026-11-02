@@ -234,6 +234,13 @@ a bigger display. `vibe_device()` tells your firmware what is there. Every firmw
 firmware, and a firmware built with SDK 19 still loads everywhere. **[DEVICES.md](DEVICES.md)** has the details, also for
 anyone building such a device.
 
+## New in SDK 20: a pad grid of any shape
+
+A device may have more than 16 pads, up to 128, as a grid: the VIBE's 4 × 4, a Launchpad- or Push-style 8 × 8, a
+20 × 4 matrix. `vibe_device()` tells your firmware the shape (`pad_cols` × `pad_rows`), `VIBE_EV_PAD` and `vibe_led_pad()`
+reach every pad. Nothing changes on the VIBE, in the plugin or in the emulator: there the grid is 4 × 4, as always.
+**[DEVICES.md](DEVICES.md)** has the details.
+
 ## Updates
 
 This repository is where the SDK grows: `git pull` brings new versions, the **issues** are the place for questions,

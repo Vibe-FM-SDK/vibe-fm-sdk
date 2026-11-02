@@ -20,7 +20,14 @@ typedef struct {
 } vibe_leds;
 static vibe_leds leds;
 
-void vibe_led_pad(int p, uint32_t rgb, float level) { if (p >= 0 && p < VIBE_PADS) { leds.pad_rgb[p] = rgb; leds.pad_lvl[p] = level; } }
+/* SDK 20: every pad of a device's grid (up to 128) also here – the first 16 stay in `leds` as before, for every host */
+static struct { uint32_t n; uint32_t rgb[VIBE_PADS_MAX]; float lvl[VIBE_PADS_MAX]; } padx;
+void vibe_led_pad(int p, uint32_t rgb, float level)
+{
+  if (p < 0 || p >= VIBE_PADS_MAX) return;
+  if (p < VIBE_PADS) { leds.pad_rgb[p] = rgb; leds.pad_lvl[p] = level; }
+  padx.rgb[p] = rgb; padx.lvl[p] = level; if ((uint32_t)p >= padx.n) padx.n = (uint32_t)p + 1;
+}
 void vibe_led_button(int b, uint32_t rgb, float level) { if (b >= 0 && b < VB_COUNT) { leds.btn_rgb[b] = rgb; leds.btn_lvl[b] = level; } }
 void vibe_led_ring(int e, float v, int bipolar) { (void)e; (void)v; (void)bipolar; }   /* no rings on the device */
 static char labels[VB_COUNT][8];
@@ -84,6 +91,7 @@ int vibe_store_write(const char *n, const void *d, int bytes) { int l = store_na
 int vibe_store_size(const char *n) { int l = store_name(n); return l ? vibe_host_store(2, n, l, 0, 0) : -1; }
 int vibe_store_delete(const char *n) { int l = store_name(n); return l ? vibe_host_store(3, n, l, 0, 0) : -1; }
 /* SDK 19: the device (op 14, the host fills the struct as it is laid out in vibe.h); no answer = the base, VIBE FM original */
+_Static_assert(sizeof(vibe_device_info) == 52, "op 14's layout is the hosts' (Protokoll 15b): 52 bytes");
 int vibe_device(vibe_device_info *info)
 {
   if (!info) return 0;
@@ -92,9 +100,12 @@ int vibe_device(vibe_device_info *info)
   const char *n = "VIBE FM"; for (int i = 0; n[i]; i++) b.name[i] = n[i];
   vibe_device_info h = b;
   int r = vibe_host_store(14, "", 0, &h, (int)sizeof h);
-  if (r > 0 && h.keys >= VIBE_KEYS && h.keys <= 61 && h.pads >= VIBE_PADS && h.pads <= 32 && h.encoders_extra <= 8
+  b.pad_cols = 4; b.pad_rows = 4;
+  if (r > 0 && h.keys >= VIBE_KEYS && h.keys <= 61 && h.pads >= VIBE_PADS && h.pads <= VIBE_PADS_MAX && h.encoders_extra <= 8
       && h.faders <= 16 && h.buttons_extra <= 16 && h.display_w >= 480 && h.display_h >= 320) {
-    h.name[sizeof h.name - 1] = 0; *info = h; return 1;   /* (a host's answer only when it keeps the base) */
+    h.name[sizeof h.name - 1] = 0;
+    if (!h.pad_cols || !h.pad_rows || h.pad_cols * h.pad_rows != h.pads) { h.pad_cols = 4; h.pad_rows = (uint8_t)((h.pads + 3) / 4); }   /* (no shape: rows of 4) */
+    *info = h; return 1;                                  /* (a host's answer only when it keeps the base) */
   }
   *info = b; return 0;
 }
@@ -602,12 +613,12 @@ VIBE_EXPORT(vibe_wasm_in_job) int vibe_wasm_in_job(void) { return jb_injob; }
 VIBE_EXPORT(vibe_wasm_init) void vibe_wasm_init(float sr) { sdk_sr = sr > 0.0f ? sr : 48000.0f; vibe_on_init(sr); }
 /* ---- SDK 8: notes – the keys, the pads and MIDI's note on / off become VIBE_EV_NOTE (vibe_notes) -------------------- */
 static int notes_flags, keys_oct = 1;
-static int8_t key_note[VIBE_KEYS], pad_note[VIBE_PADS];   /* the note each held key / pad started (-1 = none) */
+static int8_t key_note[VIBE_KEYS], pad_note[VIBE_PADS_MAX];   /* the note each held key / pad started (-1 = none) */
 void vibe_notes(int flags)
 {
   notes_flags = flags;
   for (int i = 0; i < VIBE_KEYS; i++) key_note[i] = -1;
-  for (int i = 0; i < VIBE_PADS; i++) pad_note[i] = -1;
+  for (int i = 0; i < VIBE_PADS_MAX; i++) pad_note[i] = -1;
 }
 void vibe_keys_octave(int o) { keys_oct = o < 0 ? 0 : o > 7 ? 7 : o; }
 int  vibe_keys_octave_get(void) { return keys_oct; }
@@ -625,7 +636,7 @@ static int notes_take(const vibe_event *e)
     else if (key_note[e->id] >= 0) { note_ev(key_note[e->id], 0, 0.0f, 0, VIBE_NOTE_KEYS); key_note[e->id] = -1; }
     return 1;
   }
-  if (e->type == VIBE_EV_PAD && (notes_flags & VIBE_NOTES_PADS) && e->id < VIBE_PADS) {
+  if (e->type == VIBE_EV_PAD && (notes_flags & VIBE_NOTES_PADS) && e->id < VIBE_PADS_MAX && 36 + e->id <= 127) {   /* (SDK 20: a bigger grid's pads too, as far as notes go) */
     if (e->down) { pad_note[e->id] = (int8_t)(36 + e->id); note_ev(36 + e->id, 1, e->value, 9, VIBE_NOTE_PADS); }
     else if (pad_note[e->id] >= 0) { note_ev(pad_note[e->id], 0, 0.0f, 9, VIBE_NOTE_PADS); pad_note[e->id] = -1; }
     return 1;
@@ -955,6 +966,7 @@ VIBE_EXPORT(vibe_wasm_audio) void vibe_wasm_audio(int frames, int has_input) {
 VIBE_EXPORT(vibe_wasm_rear) void *vibe_wasm_rear(void) { return &rear; }
 VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); vg_begin(framebuffer); vibe_on_draw(framebuffer); vg_begin(framebuffer); sk_draw(); return framebuffer; }
 VIBE_EXPORT(vibe_wasm_leds) void *vibe_wasm_leds(void) { return &leds; }
+VIBE_EXPORT(vibe_wasm_pad_leds) void *vibe_wasm_pad_leds(void) { return &padx; }   /* SDK 20: n, rgb[128], lvl[128] (Protokoll 15b) */
 VIBE_EXPORT(vibe_wasm_labels) void *vibe_wasm_labels(void) { return labels; }   /* VB_COUNT x 8 chars */
 #endif /* VIBE_HOST_ONLY */
 

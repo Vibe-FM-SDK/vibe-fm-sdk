@@ -36,7 +36,8 @@ void vibe_on_init(float sr) {
 | field | range | what it means |
 |---|---|---|
 | `keys` | 25–61 | `VIBE_EV_KEY` ids 0 … keys − 1 (0 = the lowest C) |
-| `pads` | 16–32 | `VIBE_EV_PAD` ids 0 … pads − 1 |
+| `pads` | 16–128 | `VIBE_EV_PAD` ids 0 … pads − 1, `vibe_led_pad` for each (SDK 20; SDK 19: up to 32) |
+| `pad_cols`, `pad_rows` | | the pads as a grid (SDK 20): pad 0 top left, row by row – the VIBE 4 × 4, a Launchpad or Push 8 × 8, a 20 × 4 matrix |
 | `encoders_extra` | 0–8 | more encoders: `VIBE_EV_ENCODER` with ids `VE_X1` (16) … `VE_X1 + 7` |
 | `faders` | 0–16 | `VIBE_EV_FADER` (17), id 0 …, value = the position 0..1 (absolute) |
 | `buttons_extra` | 0–16 | more buttons: `VIBE_EV_BUTTON` with ids `VB_X1` (64) … `VB_X1 + 15` |
@@ -56,6 +57,18 @@ The rules:
 The examples do not use it yet, because there is no second device yet. A firmware that does not call `vibe_device()`
 works on every VIBE FM compatible device unchanged.
 
+## A pad grid of any shape (SDK 20)
+
+A device's pads are a grid: `pad_cols` × `pad_rows`, up to 128 pads. A firmware that has use for a bigger grid (a step
+sequencer with 64 steps, a clip launcher) reads the shape and lays itself out on it; one that does not, uses pads 0–15 as
+always and ignores the rest. `vibe_led_pad()` lights every pad of the grid. Draw the grid's state on the display too:
+not every device has pad lights.
+
+```c
+vibe_device_info d; vibe_device(&d);
+int cols = d.pad_cols, rows = d.pad_rows;      // 4 x 4 on the VIBE, 8 x 8 on a Launchpad-style grid, 20 x 4 …
+```
+
 ## For device makers: answering the question
 
 `vibe_device()` calls `vibe_host_store(14, "", 0, data, 52)`. A host that describes its device fills the 52 bytes and
@@ -65,12 +78,14 @@ The firmware asks only from its control flow (`vibe_on_init`), never from its au
 | byte | field | range |
 |---|---|---|
 | 0 | `keys` | 25–61 |
-| 1 | `pads` | 16–32 |
+| 1 | `pads` | 16–128 |
 | 2 | `encoders_extra` | 0–8 |
 | 3 | `faders` | 0–16 |
 | 4 | `buttons_extra` | 0–16 |
 | 5 | `touch` | 0 / 1. Send clicks only to native firmwares, never to converted FM-1 firmwares. |
-| 6–15 | reserved | 0 |
+| 6 | `pad_cols` | the grid's columns (0: rows of 4) |
+| 7 | `pad_rows` | its rows; `pad_cols` × `pad_rows` = `pads` |
+| 8–15 | reserved | 0 |
 | 16–17 | `display_w` (u16, little-endian) | ≥ 480 |
 | 18–19 | `display_h` (u16, little-endian) | ≥ 320 |
 | 20–51 | `name` | UTF-8, ending with 0 |

@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 19       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 20       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -63,7 +63,10 @@
                                       is the base every firmware must work with; a VIBE FM compatible device may have more
                                       (keys up to 61, encoders VE_X1-8, faders VIBE_EV_FADER, buttons VB_X1-16, pads up to
                                       32, a bigger display): vibe_device() says what is there. No new import (op 14): a
-                                      host that does not answer – the VIBE, the plugin, the browser today – is the base. */
+                                      host that does not answer – the VIBE, the plugin, the browser today – is the base. 
+                                      20 (2.11.2026): a pad grid of any shape – pads 16..128 as pad_cols x pad_rows
+                                      (the VIBE 4 x 4, a Launchpad or Push 8 x 8, a 20 x 4 matrix …): vibe_device() says
+                                      it, VIBE_EV_PAD ids and vibe_led_pad() reach every pad. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -75,7 +78,8 @@
 #define VIBE_SCREEN_H   320
 #define VIBE_MAX_BLOCK  256        /* the host asks for at most this many audio frames per call – usually fewer, and
                                       not always the same number (the browser: 128, a DAW: its buffer, split at events) */
-#define VIBE_PADS       16
+#define VIBE_PADS       16         /* the base: the VIBE's 4 x 4 */
+#define VIBE_PADS_MAX   128        /* SDK 20: a device's grid (vibe_device: pads, pad_cols x pad_rows) */
 #define VIBE_KEYS       25         /* key 0 = lowest C; octave shifting is the firmware's business */
 
 /* buttons (event id for VIBE_EV_BUTTON, and LED id for vibe_led_button) */
@@ -96,7 +100,7 @@ enum vibe_encoder { VE_1, VE_2, VE_3, VE_4, VE_A, VE_B, VE_DATA, VE_COUNT,
                    VE_X1 = 16 };                            /* SDK 19: a device's extra encoders VE_X1 .. VE_X1 + 7 (vibe_device) */
 
 typedef enum {
-  VIBE_EV_PAD = 1,      /* id 0..15,  down 1/0, value = velocity 0..1 (on release: 0) */
+  VIBE_EV_PAD = 1,      /* id 0..15 (a bigger grid: 0..pads-1, SDK 20), down 1/0, value = velocity 0..1 (on release: 0) */
   VIBE_EV_KEY = 2,      /* id 0..24,  down 1/0, value = velocity 0..1 */
   VIBE_EV_BUTTON = 3,   /* id enum vibe_button, down 1/0 */
   VIBE_EV_ENCODER = 4,  /* id enum vibe_encoder, value = turn in detents (+ clockwise), may be fractional */
@@ -144,11 +148,12 @@ enum vibe_touch { VIBE_TOUCH_DOWN, VIBE_TOUCH_MOVE, VIBE_TOUCH_UP };   /* ids of
 /* SDK 19: the device the firmware runs on (DEVICES.md). Ask in vibe_on_init; it does not change while
    the firmware runs. Every firmware stays fully playable with the base, "VIBE FM original" (25 keys, 16 pads, VE_1..VE_DATA,
    F1-F6, K1-K6, the transport, 480 x 320): what is more is a shortcut, never the only way to a function.
-   keys: 25..61 (VIBE_EV_KEY ids 0..keys-1) · pads: 16..32 · encoders_extra: 0..8 (VE_X1 ..) · faders: 0..16
+   keys: 25..61 (VIBE_EV_KEY ids 0..keys-1) · pads: 16..128 (VIBE_EV_PAD ids 0..pads-1, SDK 20) as a grid of pad_cols x
+   pad_rows, pad 0 top left, row by row (the base 4 x 4; a Launchpad 8 x 8, a 20 x 4 matrix) · encoders_extra: 0..8 (VE_X1 ..) · faders: 0..16
    (VIBE_EV_FADER) · buttons_extra: 0..16 (VB_X1 ..) · display_w / _h: the device's display (480 x 320 or more; the
    picture is always 480 x 320 – the host scales it) · touch: 1 = the display takes clicks (VIBE_EV_TOUCH, native only) */
 typedef struct {
-  uint8_t keys, pads, encoders_extra, faders, buttons_extra, touch, reserved[10];
+  uint8_t keys, pads, encoders_extra, faders, buttons_extra, touch, pad_cols, pad_rows, reserved[8];   /* (pad_cols/_rows: SDK 20) */
   uint16_t display_w, display_h;
   char name[32];                                          /* the device's name, e.g. "VIBE FM Mk1" */
 } vibe_device_info;
@@ -173,7 +178,7 @@ void vibe_on_draw(uint16_t *vibe_fb);                                       /* p
 
 /* ---- what the SDK gives a firmware ------------------------------------------------------------------------------ */
 /* lights: colours are 0xRRGGBB, level 0..1 (0 = off) */
-void vibe_led_pad(int pad, uint32_t rgb, float level);
+void vibe_led_pad(int pad, uint32_t rgb, float level);   /* pad 0..15, on a bigger grid 0..pads-1 (SDK 20) */
 void vibe_led_button(int button, uint32_t rgb, float level);
 /* a caption for a button (the emulator writes it on the key; later the panel's small displays): up to 7 characters,
    "" = none. Meant for the soft keys F1-F6 and the six free keys right of ENTER. (SDK 2, 18.10.2026) */
