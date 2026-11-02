@@ -3,6 +3,13 @@
 Two short standards. With them, every VIBE FM firmware works with every controller, and nobody writes controller code
 into a firmware.
 
+
+**Built in (no profile needed):** the Novation **Launchpad Mini MK3**, in the emulator and on the VIBE FM (since SDK 20's
+host, 2.11.2026): it switches to programmer mode by itself and is a whole VIBE – upper left 4 × 4 the pads, upper right
+PLAY STOP REC HOME, K1–K6, F1 F2, OCT − / +, ◀ ▶, the lower four rows two octaves of keys, the round buttons F1–F6, MENU,
+RETURN, SHIFT, ENTER and DATA – and shows the firmware's lights. Other grids (a Launchpad Pro, a Push) use a profile with
+`"pads": { "notes": [...] }`.
+
 ## 1. Controller profiles (for the host, not your firmware)
 
 A **profile** is a small JSON file that says what a MIDI controller's knobs, buttons and pads are on the VIBE. The host
