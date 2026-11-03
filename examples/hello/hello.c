@@ -16,7 +16,7 @@ static int last_key = -1;
 static int held[VIBE_PADS];
 static int help;                                    /* HOME: the overview is open */
 static const char *const HELP[] = { "KEYS", "a sine tone, velocity = loudness", "PADS", "light up while held",
-  "ENCODER 1", "pitch bend \xC2\xB1" "12", "HOME", "this overview" };
+  "ENCODER 1", "pitch bend +/- 12", "HOME", "this overview" };
 
 void vibe_on_init(float sample_rate) { sr = sample_rate; vibe_log("HELLO firmware started"); }
 
