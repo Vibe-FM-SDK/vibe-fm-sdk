@@ -138,9 +138,13 @@ export class Controllers {
       if (isMpk(i.name)) mpk = true;
     });
     this.hasMpk = mpk; this.claim();
+    // (3.11.2026) which device plays with which profile – shown in Controllers ▾ (the browser chose silently before)
+    this.ports = names.filter((n) => !isLaunchpad(n)).map((n) => ({ name: n, profile: (this.profileOf(n) || {}).name || '' }));
+    if (this.lpOut) this.ports.unshift({ name: 'Launchpad Mini MK3', profile: this.lpGrid ? 'built in · 8 × 8 pads' : 'built in' });
+    if (this.onWire) this.onWire();
     const unknown = names.filter((n) => !isLaunchpad(n) && !this.profileOf(n) && !Object.keys(this.bind).some((k) => k.startsWith(n + '|')));
     if (this.lpOut) { this.lpMode(1); this.lpState.clear(); }
-    this.status(debug ? 'MIDI-Ports: ' + all.join(' · ') : names.length ? 'MIDI: ' + names.filter((n) => !/DAW/i.test(n)).join(', ') + (mpk ? ' · MPK mini: K1–K4 = encoders 1–4, K5 = DATA, K6 = volume, K7 = A, K8 = B, pads (channel 10) = pads 1–16, buttons: "Setup" (DAW preset)' : '')
+    this.status(debug ? 'MIDI-Ports: ' + all.join(' · ') : names.length ? 'MIDI: ' + this.ports.filter((p) => !/DAW/i.test(p.name)).map((p) => p.name + (p.profile ? ' → ' + p.profile : '')).join(' · ') + ' (Controllers ▾)'
       : 'No MIDI device found – plug one in and press MIDI again');
     if (!debug && unknown.length) this.status('New controller: ' + unknown.join(', ') + ' – its keys and drum pads play; for its knobs and buttons press "Setup"');
     return names.length;

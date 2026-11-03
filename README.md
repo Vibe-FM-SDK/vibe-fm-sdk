@@ -246,6 +246,12 @@ reach every pad. Nothing changes on the VIBE, in the plugin or in the emulator: 
 - **Buttons: pressed is only `e->down`.** For `VIBE_EV_BUTTON`, `e->value` is always 0 – in the plugin, the emulator and
   on the VIBE alike. Test `if (e->down)`, never `if (e->value > 0)`: such a firmware reacts to no button at all.
   `vibe-check` now presses 18 buttons and fails it, with the fix in its message.
+- **HOME is the same in every firmware.** Tapped, it shows what every key, knob and pad on the open page does –
+  `vg_controls(title, rows, n)` draws the standard overview in one call; HOME again or RETURN closes it. HOME held 1 s
+  or SHIFT + HOME opens the firmware library: the host does that now, everywhere. So **do not** call
+  `vibe_request(VIBE_REQ_FIRMWARE_MENU)` for HOME any more – `vibe-check` fails it. RETURN, not HOME, goes back to your
+  start page. All examples show how (`examples/hello` is the shortest).
+- **The emulator's library is the VIBE's main menu** (tiles, the same keys), and the footer has Credits.
 - **A Launchpad as 8 × 8 pads** (SDK 20): Controllers ▾ in the emulator gives your firmware 64 pads – see
   [DEVICES.md](DEVICES.md) and `examples/example-grid`.
 - **Endless encoders in profiles:** a control can have its own `"knobs"` (`rel2c` …), see [CONTROLLERS.md](CONTROLLERS.md).

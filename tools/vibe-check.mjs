@@ -238,6 +238,19 @@ function buttonRun(h, value) {
     return changed;
   } catch (e) { return -1; }
 }
+// (3.11.2026, Protocol 3.2) HOME tapped: the firmware shows what every control does – it must not ask for the library
+// (HOME held 1 s / SHIFT+HOME, the host does that); { lib: asked for it, changed: the display changed }
+function homeRun(h) {
+  const x = h.inst.exports;
+  try {
+    h.inAudio = false; x.vibe_wasm_init(SR);
+    const blocks = (n) => { for (let b = 0; b < n; b++) { h.inAudio = true; x.vibe_wasm_audio(BLOCK, 0); h.inAudio = false; } };
+    const pic = () => { const p = x.vibe_wasm_draw(), u = new Uint32Array(x.memory.buffer, p, 480 * 320 / 2); let k = 0; for (let i = 0; i < u.length; i++) k = (k * 31 + u[i]) >>> 0; return k; };
+    blocks(Math.ceil(2 * SR / BLOCK)); const before = pic(); h.requests.length = 0;
+    x.vibe_wasm_event(3, 17, 1, 0, 0); blocks(8); x.vibe_wasm_event(3, 17, 0, 0, 0); blocks(24);
+    return { lib: h.requests.includes(1), changed: pic() !== before };
+  } catch (e) { return null; }
+}
 // random events of every type, out-of-range ids, unknown types, releases without a press (section 7)
 function fuzzEvent(x0, held) {
   const x = { vibe_wasm_event: (...a) => { last.push(a); if (last.length > 6) last.shift(); x0.vibe_wasm_event(...a); } };
@@ -274,6 +287,11 @@ if (r1.trap && process.env.VIBE_STACK) console.error(r1.stack);
   if (withDraw > 0.001) check('Flow', noDraw > withDraw * 0.3, noDraw > withDraw * 0.3 ? 'plays even when the host does not draw (plugin with its window closed)'
     : `plays only while drawing (level ${withDraw.toFixed(3)} with, ${noDraw.toFixed(3)} without draw) – time-critical work does not belong in vibe_on_draw (section 9)`);
   else check('Flow', null, 'no sound on key/MIDI note – "plays without draw" not checked');
+}
+{ // Protocol 3.2: HOME tapped = what every control does, never the library
+  const hr = homeRun(host(new Map()));
+  if (hr) check('HOME', !hr.lib && hr.changed ? true : hr.lib ? false : null, hr.lib ? 'HOME tapped opens the library – the host does that (HOME held 1 s / SHIFT+HOME). HOME tapped SHOULD show what every key, knob and pad on this page does: vg_controls() draws it in one call (Protocol 3.2)'
+    : hr.changed ? 'HOME tapped shows something (the controls)' : 'HOME tapped does not change the display – it SHOULD show the controls (vg_controls, Protocol 3.2)');
 }
 { // Protokoll 3.2: buttons by `down` alone – a host sends value 0 with every button
   const n0 = buttonRun(host(new Map()), 0), n9 = buttonRun(host(new Map()), 0.9);

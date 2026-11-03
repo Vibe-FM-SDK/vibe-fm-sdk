@@ -51,6 +51,9 @@ static void up(void)
   list_want = 1; sel = top = 0;
 }
 
+static int help;                                 /* HOME: the controls */
+static const char *const HELP[] = { "DATA", "choose in the list", "ENTER / DATA push", "open the folder, read the file",
+  "RETURN", "a folder up / the sources", "K1", "write the tone again", "HOME", "this overview" };
 void vibe_on_event(const vibe_event *e)
 {
   if (e->type == VIBE_EV_MEDIA) {
@@ -62,9 +65,9 @@ void vibe_on_event(const vibe_event *e)
   if (e->type == VIBE_EV_ENCODER && e->id == VE_DATA) { auto_mode = 0; sel += e->value > 0 ? 1 : -1; int n = cur[0] ? nlines : nsrc; if (sel < 0) sel = 0; if (sel >= n) sel = n - 1; if (sel < 0) sel = 0; }
   if (e->type == VIBE_EV_BUTTON && e->down) {
     if (e->id == VB_ENTER || e->id == VB_DATA_PUSH) { auto_mode = 0; open_sel(); }
-    if (e->id == VB_RETURN) { auto_mode = 0; up(); }
+    if (e->id == VB_RETURN) { if (help) help = 0; else { auto_mode = 0; up(); } }
     if (e->id == VB_K1) wwant = 1;
-    if (e->id == VB_HOME) vibe_request(VIBE_REQ_FIRMWARE_MENU);
+    if (e->id == VB_HOME) help = !help;      /* HOME = what every control does (Protocol 3.2) */
   }
 }
 
@@ -156,6 +159,7 @@ void vibe_on_draw(uint16_t *fb)
 {
   (void)fb; work();
   char b[200], t[24];
+  if (help) { vg_controls("MEDIA TEST", HELP, sizeof HELP / sizeof HELP[0] / 2); return; }
   vg_clear(0x0B1220);
   vg_text("MEDIA TEST", 16, 10, VG_BIG, 0xFF6A1A, VG_LEFT);
   vg_text(cur[0] ? cur : "SOURCES", 16, 48, VG_MED, 0xE6EAF2, VG_LEFT);

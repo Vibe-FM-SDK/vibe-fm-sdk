@@ -36,6 +36,16 @@ char *vg_itoa(int v, char *buf);                              /* returns buf */
 char *vg_ftoa(float v, int decimals, char *buf);
 uint32_t vg_mix(uint32_t a, uint32_t b, float t);             /* blend two 0xRRGGBB colours */
 
+/* ---- HOME = what every control does (3.11.2026, Protokoll 3.2: the same in every firmware) ------------------------
+ * HOME tapped shows the controls of the page open now; HOME again or RETURN closes it. HOME held 1 s or SHIFT+HOME opens
+ * the firmware library – the host does that, so never call vibe_request(VIBE_REQ_FIRMWARE_MENU) for HOME.
+ * The easy way: in vibe_on_draw, while open, one call draws the standard overview (up to 22 rows, two columns from 12):
+ *   static const char *const ROWS[] = { "KEYS", "play the synth", "PADS", "drums", "ENCODER 1", "cutoff", ... };
+ *   if (help) { vg_controls("SYNTH PAGE", ROWS, sizeof ROWS / sizeof ROWS[0] / 2); return; }
+ * (rows = name / what pairs, n = the number of pairs). A firmware may draw its own overview instead (OberVave: the device
+ * laid out, with the second layer under SHIFT). */
+void vg_controls(const char *title, const char *const *rows, int n);
+
 /* ---- SDK 10: FOCUS – every control on the display reachable with ONE knob and ONE button ---------------------------
  * For controllers with few controls (an MPK mini: its knob K5 = DATA, the knob pressed = ENTER) and for anyone who
  * prefers it: DATA turns a frame from control to control, ENTER (or DATA pressed) presses a button or starts editing a

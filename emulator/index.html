@@ -23,6 +23,15 @@
   .legal { text-align: center; font: 12px var(--sans, system-ui, sans-serif); color: #6B7080; padding: 10px 16px 18px; }
   .legal a { color: #9AA0AE; text-decoration: none; } .legal a:hover { color: #FF6A1A; text-decoration: underline; }
   body.plugin .legal, body.editing .legal { display: none; }
+  .credits a { color: #FF8A4A; text-decoration: none; } .credits a:hover { text-decoration: underline; }
+  .credits ul { font-size: 13.5px; }
+  /* (3.11.2026) the firmware library = the VIBE's main menu, drawn at 480 x 320 (2x) over the display */
+  @font-face { font-family: 'Roboto Condensed'; font-weight: 500; font-display: swap; src: url(fonts/roboto-condensed-latin-500-normal.woff2) format('woff2'); }
+  @font-face { font-family: 'Roboto Condensed'; font-weight: 600; font-display: swap; src: url(fonts/roboto-condensed-latin-600-normal.woff2) format('woff2'); }
+  .dispmenu.grid { padding: 0; overflow: hidden; background: #0B0D12; }
+  .dispmenu .menucv { display: block; width: 100%; height: 100%; cursor: pointer; }
+  /* (3.11.2026) the browser: the tool bar wraps instead of hiding its right end (Controllers, Setup, Learn) in a narrow window */
+  body:not(.plugin) .topbar { flex-wrap: wrap; } body:not(.plugin) .tools { flex-wrap: wrap; overflow-x: visible; }
 </style>
 </head>
 <body>
@@ -78,8 +87,53 @@
   </div>
   <div id="rear" class="rear" aria-label="Rear panel: connectors"></div>
   <p id="status" class="status" role="status"></p>
-  <footer class="legal">© 2026 Sven Trogus · Designburg · <a href="https://thefirmwarehub.com/impressum/" target="_blank" rel="noopener">Impressum</a> · <a href="https://thefirmwarehub.com/impressum/#datenschutz" target="_blank" rel="noopener">Datenschutz</a> · <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">thefirmwarehub.com</a></footer>
+  <footer class="legal"><a href="https://designburg.net/" target="_blank" rel="noopener">Designburg</a> · <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">The Firmware Hub</a> · <a href="https://thefirmwarehub.com/impressum/" target="_blank" rel="noopener">Impressum</a> · <a href="https://thefirmwarehub.com/impressum/#datenschutz" target="_blank" rel="noopener">Datenschutz</a> · <a href="#credits" id="credits-open">Credits</a></footer>
 </main>
+
+<dialog id="credits" class="help credits" aria-labelledby="credits-h">
+  <h2 id="credits-h">Credits</h2>
+  <div class="cols">
+    <section>
+      <h3>Thanks</h3>
+      <ul>
+        <li><b><a href="https://mandalars.org/" target="_blank" rel="noopener">MandaLars</a></b> (Lars, <a href="https://github.com/megagott" target="_blank" rel="noopener">megagott</a>) – SOUNDMASCHINE, the AOT compile line that makes firmwares fast on the VIBE, and the Launchpad 8 × 8 grid.</li>
+        <li><b><a href="https://github.com/AndrewGG88" target="_blank" rel="noopener">Andrew GG</a></b> – S1VAVE, and testing MIDI and SysEx on Windows.</li>
+      </ul>
+      <h3>Licence</h3>
+      <ul>
+        <li><b>VIBE FM Web Player, Protokoll and SDK</b> – <a href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noopener">Apache License 2.0</a>, © 2026 Sven Trogus (zvenson). VIBE FM is a registered trademark.</li>
+        <li><b>Fonts</b>: Archivo, Roboto Condensed, JetBrains Mono – <a href="https://openfontlicense.org/" target="_blank" rel="noopener">SIL Open Font License 1.1</a>.</li>
+      </ul>
+    </section>
+    <section>
+      <h3>Firmwares</h3>
+      <ul id="credits-fw"><li>…</li></ul>
+      <p class="note">Each firmware belongs to its author and comes under the licence named here.</p>
+    </section>
+  </div>
+  <form method="dialog"><button class="close">Close</button></form>
+</dialog>
+<script>/* (3.11.2026) Credits: the firmware list is read from the library, so it stays current */
+(() => {
+  const dlg = document.getElementById('credits'), ul = document.getElementById('credits-fw');
+  const open = async (e) => {
+    if (e) e.preventDefault();
+    try {
+      const lib = await (await fetch('firmware/index.json', { cache: 'no-cache' })).json();
+      ul.replaceChildren(...lib.map((f) => {
+        const li = document.createElement('li'), b = document.createElement('b');
+        b.textContent = (f.name || f.id) + (f.version ? ' ' + f.version : '');
+        const lic = !f.license ? 'all rights reserved' : f.license === 'proprietary' ? 'all rights reserved' : f.license;
+        li.append(b, ' – ' + (f.author || 'Designburg') + ' · ' + lic);
+        return li;
+      }));
+    } catch (err) { ul.replaceChildren(); }
+    dlg.showModal();
+  };
+  document.getElementById('credits-open').addEventListener('click', open);
+  if (location.hash === '#credits') open();
+})();
+</script>
 
 <aside id="cheat" class="cheat" aria-label="Firmware cheat sheet" hidden><p class="none">Power on – then this shows how to play the running firmware.</p></aside>
 

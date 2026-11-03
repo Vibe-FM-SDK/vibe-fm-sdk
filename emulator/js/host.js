@@ -39,7 +39,18 @@ const rear = new Rear($('#rear'), send, (volts) => { if (node && running) node.p
   async () => { await powerOn(); enableInput(); });
 ctl.onRaw = (d) => rear.midi(d);   // CC64/CC11 = pedal, MIDI clock = CLK IN
 ctl.onVolume = (v) => panel.setVolume(v); ctl.getVolume = () => panel.volume;   // e.g. MPK mini K8
+// (3.11.2026, Protokoll 15) HOME held 1 s or SHIFT + HOME = the firmware library, in every firmware – the host does it, as
+// on the VIBE (runtime/linux vibe_runtime.c). HOME tapped belongs to the firmware: it shows what every control does.
+let homeT = 0, shiftHeld = false;
 function send(type, id, down, value, midi = 0) {
+  if (type === EV.BUTTON && id === BTN.SHIFT) shiftHeld = !!down;
+  if (type === EV.BUTTON && id === BTN.HOME && !down) { clearTimeout(homeT); homeT = 0; }
+  if (menuEvent(type, id, down, value)) return;   // (3.11.: the library is open – it takes the controls, as on the VIBE)
+  if (type === EV.BUTTON && id === BTN.HOME) {
+    clearTimeout(homeT); homeT = 0;
+    if (down && shiftHeld) { showMenu(); return; }
+    if (down) homeT = setTimeout(() => { homeT = 0; showMenu(); }, 1000);
+  }
   if (type === EV.BUTTON && down) ctl.area(id);   // TAP TEMPO ("the area again") follows the area opened last, however it was opened
   if (PLUGIN) { window.vibe_ev(type, id, down ? 1 : 0, value, midi); return; }
   if (REMOTE) { fetch(`/ev?t=${type}&i=${id}&d=${down ? 1 : 0}&v=${value}&m=${midi}`).catch(() => {}); return; }
@@ -62,6 +73,7 @@ async function loadLibrary() {
 // the on-screen pads are pads 0-15 then (the grid's top two rows), the Launchpad's top row and right column stay VIBE buttons
 let lpGrid = false; try { lpGrid = localStorage.getItem('vibe.lpgrid') === '1'; } catch (e) { /* private mode */ }
 ctl.lpGrid = lpGrid;
+ctl.onWire = () => { if (!PLUGIN) ctlRefresh().catch(() => {}); };   // (the menu shows the devices and their profiles)
 function deviceBytes() {                             // Protokoll 15b, 52 bytes (sdk/include/vibe.h vibe_device_info)
   if (!lpGrid || PLUGIN) return undefined;
   const b = new Uint8Array(52); b.set([25, 64, 0, 0, 0, 0, 8, 8], 0);
@@ -256,25 +268,105 @@ async function storePut(space, name, data) {
   } catch (e) { status('Saving in the browser failed: ' + (e.message || e), true); }
 }
 
-// the library menu is drawn by the runtime over the display (like the ROM boot menu on the device)
+// the library menu over the display = the VIBE's main menu (3.11.2026, runtime/linux/vibe_runtime.c menu_draw / menu_event):
+// 3 x 2 tiles with each firmware's picture, and the same keys – DATA / an encoder / ◀ ▶ / OCT move, ENTER · DATA push ·
+// PLAY · F1 start, HOME · RETURN · F6 back, a pad starts that tile. So a controller (the MPK's Undo = HOME) gets out again.
+const MENU = { open: false, sel: 0, top: 0, acc: 0, items: [], note: '', icons: {}, cv: null };
+const MENU_ICON_W = 148, MENU_ICON_H = 83;
+function menuIcon(id) {
+  if (id in MENU.icons) return MENU.icons[id];
+  const im = new Image(); MENU.icons[id] = null;
+  im.onload = () => { MENU.icons[id] = im; if (MENU.open) menuDraw(); };
+  im.src = 'firmware/icons/' + id + '.webp';
+  return null;
+}
 function showMenu(note) {
   const m = panel.menu;
-  m.innerHTML = `<h4>FIRMWARE · microSD</h4>${note ? `<p>${note}</p>` : ''}`;
-  library.forEach((f) => {
-    const b = document.createElement('button'); b.type = 'button'; if (current && current.id === f.id) b.className = 'cur';
-    b.innerHTML = `<span>${f.name} ${f.version || ''}</span><small>${f.description || ''}</small>`;
-    b.addEventListener('click', () => (PLUGIN ? pluginLoad(f.id) : boot(f))); m.appendChild(b);
-  });
-  const own = document.createElement('button'); own.type = 'button';
-  own.innerHTML = PLUGIN ? '<span>ADD FIRMWARE …</span><small>choose the .zip from thefirmwarehub.com – or drop it onto this window</small>'
-    : '<span>YOUR OWN FIRMWARE …</span><small>choose a .wasm or drop it onto the device</small>';
-  own.addEventListener('click', () => (PLUGIN ? pluginPick() : $('#fwfile').click()));
-  m.appendChild(own);
-  const back = document.createElement('button'); back.type = 'button'; back.innerHTML = '<span>↩ BACK</span><small></small>';
-  back.addEventListener('click', hideMenu); m.appendChild(back);
-  m.classList.add('on');
+  MENU.items = library.map((f) => ({ id: f.id, name: f.name || f.id, version: f.version || '', desc: f.description || '', f }));
+  MENU.items.push(PLUGIN ? { id: '__add', name: 'ADD FIRMWARE', version: '', desc: 'choose the .zip from thefirmwarehub.com – or drop it onto this window' }
+    : { id: '__file', name: 'YOUR OWN', version: '', desc: 'choose a .wasm – or drop it onto the device' });
+  MENU.note = note || ''; MENU.acc = 0; MENU.top = 0;
+  MENU.sel = Math.max(0, MENU.items.findIndex((it) => current && it.id === current.id));
+  if (!MENU.cv) {
+    MENU.cv = document.createElement('canvas'); MENU.cv.width = 960; MENU.cv.height = 640; MENU.cv.className = 'menucv';
+    MENU.cv.addEventListener('click', (e) => {   // (the mouse: a tile starts it, a soft-key label does what it says)
+      const r = MENU.cv.getBoundingClientRect(), x = (e.clientX - r.left) * 480 / r.width, y = (e.clientY - r.top) * 320 / r.height;
+      if (y >= 282) { if (x < 80) menuStart(); else if (x >= 400) hideMenu(); return; }
+      for (let k = 0; k < 6; k++) {
+        const i = MENU.top * 3 + k, tx = 8 + (k % 3) * 158, ty = 40 + Math.floor(k / 3) * 110;
+        if (i < MENU.items.length && x >= tx - 3 && x < tx + MENU_ICON_W + 3 && y >= ty - 3 && y < ty + MENU_ICON_H + 24) { MENU.sel = i; menuStart(); return; }
+      }
+    });
+    MENU.cv.addEventListener('wheel', (e) => { e.preventDefault(); menuEvent(EV.ENCODER, ENC.DATA, 0, e.deltaY > 0 ? 1 : -1); }, { passive: false });
+  }
+  m.replaceChildren(MENU.cv); m.classList.add('on', 'grid');
+  MENU.open = true; menuDraw();
+  if (document.fonts) document.fonts.load("600 15px 'Roboto Condensed'").then(() => { if (MENU.open) menuDraw(); }, () => {});
 }
-function hideMenu() { panel.menu.classList.remove('on'); }
+function hideMenu() { panel.menu.classList.remove('on', 'grid'); MENU.open = false; }
+function menuStart() {
+  const it = MENU.items[MENU.sel]; if (!it) return;
+  if (it.id === '__add') { pluginPick(); return; }
+  if (it.id === '__file') { $('#fwfile').click(); return; }
+  if (current && current.id === it.id && running) { hideMenu(); return; }
+  if (PLUGIN) pluginLoad(it.id); else powerOn().then(() => boot(it.f));
+}
+// a control while the menu is open: the menu takes it (true), as on the VIBE – the firmware gets nothing meanwhile
+function menuEvent(type, id, down, value) {
+  if (!MENU.open) return false;
+  const n = MENU.items.length;
+  if (type === EV.ENCODER) {
+    MENU.acc += value;
+    while (MENU.acc >= 1) { MENU.acc -= 1; if (MENU.sel < n - 1) MENU.sel++; }
+    while (MENU.acc <= -1) { MENU.acc += 1; if (MENU.sel > 0) MENU.sel--; }
+    menuDraw(); return true;
+  }
+  if (type === EV.PAD && down && id < n) { MENU.sel = id; menuStart(); return true; }
+  if (type !== EV.BUTTON) return type === EV.PAD || type === EV.KEY;   // (keys and pads: not into the firmware underneath either)
+  if (!down) return true;
+  if (id === BTN.HOME || id === BTN.RETURN || id === BTN.F6) hideMenu();
+  else if (id === BTN.RIGHT) MENU.sel = Math.min(n - 1, MENU.sel + 1);
+  else if (id === BTN.LEFT) MENU.sel = Math.max(0, MENU.sel - 1);
+  else if (id === BTN.OCT_UP) MENU.sel = Math.min(n - 1, MENU.sel + 3);
+  else if (id === BTN.OCT_DOWN) MENU.sel = Math.max(0, MENU.sel - 3);
+  else if (id === BTN.ENTER || id === BTN.DATA_PUSH || id === BTN.PLAY || id === BTN.F1) { menuStart(); return true; }
+  if (MENU.open) menuDraw();
+  return true;
+}
+function menuDraw() {
+  const c = MENU.cv.getContext('2d'), F = (px, w = 600) => `${w} ${px}px 'Roboto Condensed', 'Archivo', system-ui, sans-serif`;
+  const fit = (t, font, max) => { c.font = font; while (t && c.measureText(t).width > max) t = t.slice(0, -1); return t; };
+  const round = (x, y, w, h, r, col) => { c.fillStyle = col; c.beginPath(); c.roundRect(x, y, w, h, r); c.fill(); };
+  const text = (t, x, y, font, col, align = 'left') => { c.font = font; c.fillStyle = col; c.textAlign = align; c.fillText(t, x, y); };
+  c.setTransform(2, 0, 0, 2, 0, 0); c.textBaseline = 'top';
+  c.fillStyle = '#0B0D12'; c.fillRect(0, 0, 480, 320);
+  text('VIBE FM', 10, 8, F(15), '#FF6A1A'); text('FIRMWARE', 88, 8, F(15), '#E6EAF2');
+  text(String(MENU.items.length), 470, 8, F(15), '#8A93A6', 'right');
+  c.fillStyle = '#FF6A1A'; c.fillRect(0, 31, 480, 1);
+  const n = MENU.items.length, row = Math.floor(MENU.sel / 3);
+  if (row < MENU.top) MENU.top = row; if (row > MENU.top + 1) MENU.top = row - 1;
+  for (let k = 0; k < 6 && MENU.top * 3 + k < n; k++) {
+    const i = MENU.top * 3 + k, x = 8 + (k % 3) * 158, y = 40 + Math.floor(k / 3) * 110, it = MENU.items[i];
+    const on = i === MENU.sel, run = current && running && current.id === it.id, icon = it.id[0] === '_' ? null : menuIcon(it.id);
+    if (on) round(x - 3, y - 3, MENU_ICON_W + 6, MENU_ICON_H + 6, 6, '#FF6A1A'); else round(x - 1, y - 1, MENU_ICON_W + 2, MENU_ICON_H + 2, 4, '#242C3C');
+    if (icon) { c.save(); c.beginPath(); c.roundRect(x, y, MENU_ICON_W, MENU_ICON_H, 4); c.clip(); c.drawImage(icon, x, y, MENU_ICON_W, MENU_ICON_H); c.restore(); }
+    else {
+      round(x, y, MENU_ICON_W, MENU_ICON_H, 5, '#141A26'); c.fillStyle = it.id[0] === '_' ? '#8A93A6' : '#3FE0E8'; c.fillRect(x + 5, y, MENU_ICON_W - 10, 2);
+      text(fit(it.id[0] === '_' ? '+' : it.name, F(22), MENU_ICON_W - 12), x + MENU_ICON_W / 2, y + 30, F(22), '#E6EAF2', 'center');
+    }
+    const v = run ? '▶ RUNNING' : it.version; c.font = F(14, 500); const vw = v ? c.measureText(v).width + 6 : 0;
+    text(fit(it.name, F(15), MENU_ICON_W - vw), x, y + MENU_ICON_H + 5, F(15), on ? '#FFFFFF' : '#B8C0D0');
+    if (vw) text(v, x + MENU_ICON_W, y + MENU_ICON_H + 6, F(14, 500), run ? '#6EE7A8' : '#5B6577', 'right');
+  }
+  const tri = (a, b, d, col) => { c.fillStyle = col; c.beginPath(); c.moveTo(...a); c.lineTo(...b); c.lineTo(...d); c.fill(); };
+  if (MENU.top > 0) tri([424, 22], [436, 22], [430, 12], '#FF6A1A');
+  if ((MENU.top + 2) * 3 < n) tri([440, 12], [452, 12], [446, 22], '#FF6A1A');
+  const it = MENU.items[MENU.sel];
+  if (MENU.note) text(fit(MENU.note, F(14, 500), 464), 8, 262, F(14, 500), '#FF8A4A');
+  else if (it) text(fit(it.desc, F(14, 500), 464), 8, 262, F(14, 500), '#8A93A6');
+  c.fillStyle = '#0E1220'; c.fillRect(0, 282, 480, 38);
+  [['START', 0], ['BACK', 5]].forEach(([t, i]) => { const x = 40 + i * 80; round(x - 37, 286, 74, 30, 5, i === 0 ? '#FF6A1A' : '#24314A'); text(t, x, 293, F(15), i === 0 ? '#111214' : '#E6EAF2', 'center'); });
+}
 $('#fw').addEventListener('change', async (e) => { if (PLUGIN) { if (e.target.value === '__add') { $('#fw').value = current ? current.id : ''; pluginPick(); return; } pluginLoad(e.target.value); return; } if (e.target.value === '__file') { $('#fwfile').click(); return; } await powerOn(); boot(library.find((f) => f.id === e.target.value)); });
 $('#fwfile').addEventListener('change', async (e) => { const f = e.target.files[0]; if (!f) return; await powerOn(); boot({ name: f.name.replace(/\.wasm$/, ''), bytes: await f.arrayBuffer() }); e.target.value = ''; });
 wrap.addEventListener('dragover', (e) => { e.preventDefault(); if (!PLUGIN) wrap.classList.add('drop'); });
@@ -465,6 +557,9 @@ async function ctlRefresh() {
     if (editor && editor.learned) editor.learned(learnedIds());
   } else {
     opt('', 'Controllers ▾');                         // (the browser takes the profile whose "match" is in the port's name)
+    // (3.11.2026) what is plugged in, and the profile it plays with (or none: Setup makes one)
+    for (const p of (ctl.ports || []).filter((x) => !/DAW/i.test(x.name))) opt('-', (p.profile ? '✓ ' + p.name + ' → ' + p.profile : '· ' + p.name + ' – no profile: Set up …'), true);
+    if ((ctl.ports || []).length) opt('-', '──────────', true);
     opt('__setup', 'Set up a new one …'); opt('__load', 'Load a profile …'); opt('__save', 'Save yours ↓'); opt('__share', 'Share yours …');
     opt('__lpgrid', (lpGrid ? '✓ ' : '') + 'Launchpad as 8 × 8 pads');   // (3.11.2026: for firmwares made for a grid – the SOUNDMASCHINE)
     ctlSel.value = '';

@@ -245,8 +245,8 @@ static void button(int id, int down)
     case VB_F3: case VB_LEFT: prog_step(-1); break;
     case VB_F4: case VB_RIGHT: prog_step(1); break;
     case VB_F6: if (shift) seq_undo(); else go(page == PG_GLOBAL ? PG_OUTPUT : PG_GLOBAL); break;
-    case VB_HOME: case VB_RETURN: go(PG_PERFORM); break;
-    case VB_MENU: menu = !menu; break;
+    case VB_RETURN: go(PG_PERFORM); break;
+    case VB_HOME: case VB_MENU: menu = !menu; break;   /* (3.11.2026, Protocol 3.2: HOME = what every control does, everywhere) */
     case VB_ENTER: case VB_DATA_PUSH:
         if (f5_down) { randomize(); f5_used = 1; save_armed = 0; say("NEW SOUND"); }
         else if (shift && page == PG_GLOBAL) reset_ask = 1;

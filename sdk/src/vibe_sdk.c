@@ -321,6 +321,29 @@ uint32_t vg_mix(uint32_t a, uint32_t b, float t) {
   return ((uint32_t)(ar + (br - ar) * t) << 16) | ((uint32_t)(ag + (bg - ag) * t) << 8) | (uint32_t)(ab + (bb - ab) * t);
 }
 
+/* ---- 3.11.2026: HOME = what every control does (Protokoll 3.2) – the standard overview, one call ------------------ */
+void vg_controls(const char *title, const char *const *rows, int n)
+{
+  vg_clear(0x0B1220);
+  int tw = vg_text("CONTROLS", 10, 8, VG_MED, 0xFF6A1A, VG_LEFT);
+  if (title && title[0]) vg_text(title, 22 + tw, 10, VG_SMALL, 0xE6EAF2, VG_LEFT);
+  vg_text("HOME / \xE2\x86\xA9 back \xC2\xB7 HOME 1 s: all firmwares", 470, 10, VG_SMALL, 0x5B6577, VG_RIGHT);
+  vg_rect(0, 31, VIBE_SCREEN_W, 1, 0xFF6A1A);
+  const int per = 11, two = n > per, w = two ? 226 : 460;
+  int nw = 0;                                    /* the name column: as wide as the longest name */
+  for (int i = 0; i < n && i < 2 * per; i++) { int k = vg_text_width(rows[2 * i] ? rows[2 * i] : "", VG_SMALL); if (k > nw) nw = k; }
+  nw += 14; if (nw > w / 2) nw = w / 2;
+  for (int i = 0; i < n && i < 2 * per; i++) {
+    int x = 10 + (i / per) * 234, y = 40 + (i % per) * 25;
+    char b[96]; const char *s = rows[2 * i + 1] ? rows[2 * i + 1] : ""; int l = 0;
+    while (s[l] && l < (int)sizeof b - 1) { b[l] = s[l]; l++; } b[l] = 0;
+    while (l > 0 && vg_text_width(b, VG_BOLD) > w - nw - 12) { do l--; while (l > 0 && ((unsigned char)b[l] & 0xC0) == 0x80); b[l] = 0; }   /* (too long: cut) */
+    vg_round(x, y, w, 22, 3, 0x18223A);
+    vg_text(rows[2 * i] ? rows[2 * i] : "", x + 7, y + 4, VG_SMALL, 0x8A93A6, VG_LEFT);
+    vg_text(b, x + 7 + nw, y + 4, VG_BOLD, 0xE6EAF2, VG_LEFT);
+  }
+}
+
 /* ---- SDK 10: FOCUS (vibe_gfx.h) – the controls of the last frame, DATA walks them, ENTER uses them ---------------- */
 #define VF_MAX 64
 typedef struct { int id, x, y, w, h; float *v, lo, hi, step; } vf_item;

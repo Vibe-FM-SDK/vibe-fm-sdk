@@ -79,7 +79,8 @@ Follow the house layout so every VIBE FM firmware feels the same (`AGENTS.md`, h
 - the six keys right of ENTER: **SOUND · ENV · LFO · ARP · FX · SEQ**, where it fits;
 - encoders 1–4 are the four values shown above F1–F6;
 - F1–F6 have their captions on the display (`vibe_label` for the light);
-- HOME opens the firmware library: `vibe_request(VIBE_REQ_FIRMWARE_MENU)`.
+- HOME tapped shows the controls (`vg_controls()`, the FM-1's HOME function goes to RETURN); the library opens on HOME
+  held 1 s or SHIFT+HOME – the host does it, never call `vibe_request(VIBE_REQ_FIRMWARE_MENU)` for HOME.
 
 **3. The pages.** Draw every page fresh on 480 × 320 with `vg_*`: full width, big type, the page's colour in the header.
 Draw everything, every time (the host may skip frames; the plugin with its window closed draws none). Keep it fast:

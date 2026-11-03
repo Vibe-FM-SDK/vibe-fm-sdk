@@ -123,7 +123,7 @@ full source is in `firmwares/obervave-src/` (GPL-3.0). `sh tools/build.sh firmwa
 - **PLAY:** start / stop.
 - **REC:** record. Hold it for 1 s, or press SHIFT + REC, to clear the track.
 - **MENU:** an overview of every control.
-- **HOME:** the performance view. *Hold* HOME to open the firmware library.
+- **HOME:** what every control does on this page (MENU too) · **↩** the performance view. *Hold* HOME 1 s (or SHIFT+HOME) to open the firmware library.
 
 **FOCUS:** hold ENTER for 0.6 s. The frame then walks over the area name, the track, the sound, the four values and F1 – F6.
 

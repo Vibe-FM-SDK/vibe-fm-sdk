@@ -64,8 +64,12 @@ void vibe_on_init(float sample_rate)
   env_update();
 }
 
+static int help;                                  // HOME: the controls (Protocol 3.2: the same in every firmware)
+static const char *const HELP[] = { "KEYS / MIDI / DAW", "play (8 voices)", "ENCODER 1", "cutoff", "ENCODER 2", "resonance",
+  "ENCODER 3", "attack", "ENCODER 4", "release", "A", "volume", "HOME", "this overview" };
 void vibe_on_event(const vibe_event *e)
 {
+  if (e->type == VIBE_EV_BUTTON && e->down && (e->id == VB_HOME || e->id == VB_RETURN)) { help = e->id == VB_HOME ? !help : 0; return; }
   switch (e->type) {
   case VIBE_EV_NOTE:                              // from any source: e->midi[1] says which (keys, pads, MIDI, host)
     if (e->down) note_on(e->id, e->value); else note_off(e->id);
@@ -119,6 +123,7 @@ void vibe_on_audio(const float *in, float *out_l, float *out_r, int frames)
 void vibe_on_draw(uint16_t *fb)
 {
   (void)fb;
+  if (help) { vg_controls("EXAMPLE SYNTH", HELP, sizeof HELP / sizeof HELP[0] / 2); return; }
   vg_clear(0x101114);
   vg_text("EXAMPLE SYNTH", 16, 12, VG_BIG, 0xF2F2F2, 0);
   const vibe_transport_info *tp = vibe_transport();

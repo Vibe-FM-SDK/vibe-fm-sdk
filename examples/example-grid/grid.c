@@ -3,7 +3,7 @@
  * GRID – a pad grid of any shape (SDK 20). Ask the device once, then play on whatever grid it has:
  *   the VIBE's 4 x 4, a Launchpad as 8 x 8 (Web Player: Controllers ▾ → Launchpad as 8 × 8 pads), a 20 x 4 matrix.
  *   pads -> a note each, a fourth per row upwards (as an isomorphic keyboard), lit while held, dimly in their column's colour
- *   keys -> the same sound · HOME -> the firmware library
+ *   keys -> the same sound · HOME -> what every control does (HOME 1 s: the library, the host does it)
  */
 #include "vibe.h"
 #include "vibe_gfx.h"
@@ -15,7 +15,8 @@ static int cols = 4, rows = 4, pads = 16;
 static uint8_t held[VIBE_PADS_MAX];
 #define VOICES 8
 static struct { float f, ph, env; int src; } v[VOICES];
-static int next;
+static int next, help;
+static const char *const HELP[] = { "PADS", "a note each, a fourth per row up", "KEYS", "the same sound", "HOME", "this overview" };
 static const uint32_t COLOUR[8] = { 0xFF6A1A, 0xFFC21A, 0x6EE7A8, 0x1AD6FF, 0x5B7CFF, 0xB65BFF, 0xFF5BC8, 0xE6EAF2 };
 
 static int pad_note(int p) { int r = p / cols, c = p % cols; return 36 + c + (rows - 1 - r) * 5; }
@@ -38,7 +39,9 @@ void vibe_on_event(const vibe_event *e)
     if (e->down) play(pad_note(e->id), e->value > 0 ? e->value : 0.9f, e->id);
   }
   if (e->type == VIBE_EV_KEY && e->down) play(48 + e->id, e->value, -1);
-  if (e->type == VIBE_EV_BUTTON && e->id == VB_HOME && e->down) vibe_request(VIBE_REQ_FIRMWARE_MENU);   /* pressed = e->down */
+  if (e->type == VIBE_EV_BUTTON && e->down) {   /* pressed = e->down · HOME = what every control does (Protokoll 3.2) */
+    if (e->id == VB_HOME) help = !help; else if (e->id == VB_RETURN) help = 0;
+  }
 }
 
 void vibe_on_audio(const float *in, float *l, float *r, int n)
@@ -60,6 +63,7 @@ void vibe_on_draw(uint16_t *fb)
 {
   char a[8], b[8], c[8];
   (void)fb;
+  if (help) { vg_controls("GRID", HELP, sizeof HELP / sizeof HELP[0] / 2); return; }
   vg_clear(0x0B1220);
   vg_text("GRID", 16, 10, VG_BIG, 0xFF6A1A, VG_LEFT);
   vg_text(dev.name[0] ? dev.name : "VIBE FM", 464, 14, VG_SMALL, 0x8A93A6, VG_RIGHT);

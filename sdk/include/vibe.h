@@ -87,7 +87,8 @@ enum vibe_button {
   VB_F1, VB_F2, VB_F3, VB_F4, VB_F5, VB_F6,                 /* soft keys under the display */
   VB_SHIFT, VB_OCT_DOWN, VB_OCT_UP, VB_ENTER,
   VB_K1, VB_K2, VB_K3, VB_K4, VB_K5, VB_K6,                 /* six free keys right of ENTER */
-  VB_RETURN, VB_HOME,
+  VB_RETURN, VB_HOME,                                        /* HOME tapped: show what every control does on this page (3.11.2026,
+                                                                Protokoll 3.2) – never the library: HOME held 1 s / SHIFT+HOME, the host */
   VB_LEFT, VB_MENU, VB_RIGHT,
   VB_REC, VB_STOP, VB_PLAY,
   VB_DATA_PUSH,

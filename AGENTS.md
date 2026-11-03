@@ -14,7 +14,9 @@ function is documented where it is declared. When this file and a header disagre
    reports its mixer (SDK 11).
 4. **FOCUS (SDK 10):** every control on the display is reachable with DATA + ENTER (`vf_*`). If DATA already has a
    job, use `vf_mode(VF_ON_HOLD)`.
-5. **HOME is the firmware library's:** call `vibe_request(VIBE_REQ_FIRMWARE_MENU)`.
+5. **HOME shows the controls:** HOME tapped = what every key, knob and pad on the open page does (`vg_controls()` draws
+   the standard overview in one call); HOME again or RETURN closes it. HOME held 1 s or SHIFT+HOME opens the firmware
+   library – the **host** does that. Never call `vibe_request(VIBE_REQ_FIRMWARE_MENU)` for HOME (vibe-check fails it).
 6. **No clicks, ever:** nothing heavy in `vibe_on_audio`, and nothing long in `vibe_on_draw`. On the VIBE, drawing and
    sound share one flow. `wasmtest` reports `draw_max_ms`, which should stay at a few ms.
 7. **`vibe-check` passes before you call it done.**
@@ -71,7 +73,9 @@ The host calls all four from **one thread, one after the other** – no locks, n
   (`VIBE_EV_BUTTON`: F1–F6 under the display, K1–K6 right of ENTER, SHIFT, OCT −/+, ENTER, RETURN, HOME, ◀ MENU ▶,
   REC STOP PLAY, DATA push). **A button is pressed when `e->down` is 1 – `e->value` is always 0 for buttons**, in every
   host: test `if (e->down)`, never the value (vibe-check fails a firmware that does).
-- **HOME** belongs to the firmware library: on `VB_HOME` down call `vibe_request(VIBE_REQ_FIRMWARE_MENU)`.
+- **HOME** is the same in every firmware: tapped = the controls of the open page (`vg_controls(title, rows, n)`, see
+  `sdk/include/vibe_gfx.h`), HOME again / RETURN = close. The library (HOME held 1 s, SHIFT+HOME) is the host's.
+  RETURN, not HOME, goes back to your start page.
 - Lights: `vibe_led_pad`, `vibe_led_button`; captions for F1–F6 and K1–K6: `vibe_label` (≤ 7 characters).
 - The house style for the six keys right of ENTER (K1–K6): **SOUND · ENV · LFO · ARP · FX · SEQ** where it fits; draw
   the page names on the display (the keys carry no print), full width, big type.
@@ -209,7 +213,8 @@ and HAL with the four callbacks, compute rate tables from `sample_rate`, redraw 
 - Drawing only what changed → the host expects a full frame each call.
 - Hard-coding 48000 / 128 → wrong pitch and tempo in a DAW at 44.1 kHz or with odd buffer sizes.
 - Reading `vibe_param_get` per sample for many parameters → read once per block into locals.
-- Forgetting `vibe_request(VIBE_REQ_FIRMWARE_MENU)` on HOME → the player is stuck in your firmware on the hardware.
+- Calling `vibe_request(VIBE_REQ_FIRMWARE_MENU)` on HOME → wrong since 3 November 2026: HOME tapped shows the controls
+  (`vg_controls`); the host opens the library on HOME held 1 s or SHIFT+HOME.
 
 Licence: the SDK is Apache-2.0; the user's firmware is theirs, under any licence they choose. "VIBE FM" is a trademark:
 "built with the VIBE FM SDK" is fine, "VIBE FM compatible" or the logo need permission.

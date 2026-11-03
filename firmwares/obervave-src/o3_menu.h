@@ -20,7 +20,7 @@ static void overview(void)
     vg_text(shift ? "with SHIFT" : "hold SHIFT: 2nd layer", 470, 9, VG_SMALL, shift ? 0x3FA9F5 : MUTED, VG_RIGHT);
     int sq = in_seq(), entry = sq && (SV_ENTRY(seq_view) || seq_view == SV_SLOTS);
     if (page == PG_MIXER) mixer_knobs(k); else if (sq) seq_knobs(k); else page_knobs(k);
-    ov_cell(6, 30, 92, 40, "↩ / HOME", "PERFORM", "", 0);
+    ov_cell(6, 30, 92, 40, "↩", "PERFORM", "", 0);
     for (int i = 0; i < 4; i++) { char n[2] = {(char)('1' + i), 0}; ov_cell(104 + i * 74, 30, 70, 40, n, k[i].label ? k[i].label : "", k[i].label ? k[i].value : "", ACCENT); }
     ov_cell(404, 30, 70, 40, "DATA", shift ? "TEMPO" : save_armed ? "SLOT" : sq && SV_ENTRY(seq_view) ? "BAR" : sq || page == PG_MIXER ? "PATTERN" : page == PG_GLOBAL ? "MIDI OUT" : "PATCH", "", ACCENT);
     { static const char *FN[6] = {"MIXER", "TRACKS", "PRG -", "PRG +", "SAVE", "GLOBAL"}, *FSH[6] = {"", "", "", "", "HOLD", "UNDO"};
@@ -36,7 +36,7 @@ static void overview(void)
     ov_cell(6, 170, 112, 40, "A", entry ? (seq_view == SV_SLOTS ? "SLOT" : "STEP ◀ ▶") : "TRACK A–D", "", GREEN);
     ov_cell(122, 170, 112, 40, "B", sq && seq_view == SV_STEPS && !shift ? "NOTE UP/DOWN" : sq && seq_view == SV_TRACK ? "TRANSPOSE" : "PATCH",
             sq && seq_view == SV_STEPS ? "SHIFT: PATCH" : "", GREEN);
-    ov_cell(6, 216, 74, 40, "◀", "PRG -", "", 0); ov_cell(84, 216, 74, 40, "MENU", "CONTROLS", "", 0); ov_cell(162, 216, 72, 40, "▶", "PRG +", "", 0);
+    ov_cell(6, 216, 74, 40, "◀", "PRG -", "", 0); ov_cell(84, 216, 74, 40, "HOME", "CONTROLS", "", 0); ov_cell(162, 216, 72, 40, "▶", "PRG +", "", 0);
     ov_cell(6, 262, 74, 52, "REC", shift ? "CLEAR" : "RECORD", "", RED);
     ov_cell(84, 262, 74, 52, "STOP", "STOP", "", 0); ov_cell(162, 262, 72, 52, "PLAY", "START", "", GREEN);
     {   /* the pads, row by row */

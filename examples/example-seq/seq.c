@@ -4,7 +4,7 @@
 // position when one plays (vibe_transport). It also sounds a small voice of its own, so you hear it without routing.
 // And the Editor (SDK 9): one card in our order, a slider, a menu, an accent colour, the pattern as a curve.
 //   pads  = steps 1-16 (toggle)     keys = the root note     PLAY = run/stop (own clock)
-//   encoders 1-4 = Gate, Velocity, Swing, Tempo (also the DAW's parameters)
+//   encoders 1-4 = Gate, Velocity, Swing, Tempo (also the DAW's parameters)     HOME = what every control does
 #include "vibe.h"
 #include "vibe_dsp.h"
 #include "vibe_gfx.h"
@@ -22,6 +22,9 @@ static const char *const GROUPS[P_COUNT] = { "SEQUENCER", "SEQUENCER", "SEQUENCE
 static const vibe_card CARDS[] = { { "SEQUENCER", 8, "16 steps · pads toggle them · the curve is the pattern" }, { "MIDI OUT", 4, "to your DAW track or other gear" } };
 
 static float SR;
+static int help;
+static const char *const HELP[] = { "PADS", "steps 1-16 on / off", "KEYS", "the root note", "PLAY", "run / stop (own clock)",
+  "ENCODER 1", "gate", "ENCODER 2", "velocity", "ENCODER 3", "swing", "ENCODER 4", "tempo", "HOME", "this overview" };
 static uint8_t on[16] = { 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0 };
 static int root = 48, running, step = -1, host_led;
 static double pos;                                 // position in 16ths (own clock)
@@ -66,7 +69,8 @@ void vibe_on_event(const vibe_event *e)
   case VIBE_EV_NOTE: if (e->down) root = e->id; break;
   case VIBE_EV_BUTTON:
     if (e->id == VB_PLAY && e->down && !host_led) { running = !running; pos = 0.0; step = -1; vibe_transport_out(running); if (!running) note_off_now(0); }
-    if (e->id == VB_HOME && e->down) vibe_request(VIBE_REQ_FIRMWARE_MENU);
+    if (e->id == VB_HOME && e->down) help = !help;   // HOME = what every control does (Protokoll 3.2)
+    if (e->id == VB_RETURN && e->down) help = 0;
     break;
   case VIBE_EV_ENCODER:
     if (e->id <= VE_4) { int p = e->id; const vibe_param *d = &PARAMS[p]; vibe_param_set(p, vibe_param_get(p) + e->value * (d->max - d->min) / 100.0f); if (p == P_TEMPO) vibe_tempo_set(vibe_param_get(P_TEMPO)); }
@@ -117,6 +121,7 @@ void vibe_on_draw(uint16_t *fb)
 {
   (void)fb;
   char buf[16];
+  if (help) { vg_controls("SEQ", HELP, sizeof HELP / sizeof HELP[0] / 2); return; }
   vg_clear(0x101114);
   vg_text("EXAMPLE SEQ", 16, 12, VG_BIG, 0xF2F2F2, 0);
   vg_text(host_led ? "DAW leads" : running ? "own clock · MIDI clock out" : "stopped · PLAY runs it", 464, 18, VG_SMALL, host_led ? 0x40E0D0 : 0x8A93A6, VG_RIGHT);
