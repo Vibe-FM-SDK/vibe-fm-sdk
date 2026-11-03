@@ -416,7 +416,12 @@ ctl.onWizard = (on) => {
 const chSel = $('#midich'); chSel.value = String(ctl.channel); chSel.addEventListener('change', () => ctl.setChannel(chSel.value));
 // (SDK 9) the firmware's MIDI out: a Web MIDI output, chosen here (the list fills once MIDI is connected)
 const outSel = $('#midiout');
-ctl.onOutPorts = (ports, chosen) => { outSel.textContent = ''; const o0 = document.createElement('option'); o0.value = ''; o0.textContent = 'MIDI out: off'; outSel.appendChild(o0); for (const n of ports) { const o = document.createElement('option'); o.value = n; o.textContent = 'MIDI out: ' + n; outSel.appendChild(o); } outSel.value = ports.includes(chosen) ? chosen : ''; };
+// SDK 15: a SysEx from a MIDI input – to the firmware (the plugin: through its queue, vibe_sysex_in; the browser: the worklet)
+ctl.onSysex = (d) => {
+  if (PLUGIN) { if (window.vibe_sysex_in) { let s = ''; for (const x of d) s += String.fromCharCode(x); window.vibe_sysex_in(btoa(s)); } return; }
+  if (node && running) node.port.postMessage({ t: 'sysex', bytes: Array.from(d) });
+};
+ctl.onOutPorts = (ports, chosen) => { outSel.textContent = ''; const o0 = document.createElement('option'); o0.value = ''; o0.textContent = PLUGIN ? 'SysEx out: auto' : 'MIDI out: off'; outSel.appendChild(o0); for (const n of ports) { const o = document.createElement('option'); o.value = n; o.textContent = (PLUGIN ? 'SysEx out: ' : 'MIDI out: ') + n; outSel.appendChild(o); } outSel.value = ports.includes(chosen) ? chosen : ''; };
 outSel.addEventListener('change', async () => { if (!ctl.access) { await powerOn(); await ctl.connect(); } ctl.setOut(outSel.value); });
 $('#tb-setup').addEventListener('click', async () => {
   await powerOn(); if (!ctl.access) await ctl.connect();
@@ -856,23 +861,42 @@ async function pluginMode() {
   }
   // the plugin's MIDI: the DAW's (while Setup / Learn listen – 0.7.0, every system) and on the Mac the controllers the
   // window reads itself (CoreMIDI: the Launchpad's lights; the others the plugin maps, see controllers.js generic)
-  pluginMidi(); ctl.plugin = true;                    // (the DAW plays the notes: the window only learns)
-  ctl.connect().then((ok) => { if (ok && window.vibe_midi_ports) $('#tb-midi').classList.add('on'); });
+  const ownPorts = pluginMidi(); ctl.plugin = true;   // (the DAW plays the notes: the window only learns)
+  ctl.connect().then((ok) => {
+    if (ok && ownPorts) $('#tb-midi').classList.add('on');
+    if (!ok || !window.vibe_sysex_take) return;
+    // (0.7.2) SDK 15: the firmware's SysEx out to the window's MIDI ports (#midiout: one, or auto = every two-way device)
+    outSel.style.display = '';
+    setInterval(async () => {
+      let l = []; try { l = JSON.parse(await window.vibe_sysex_take()); } catch (e) { return; }
+      for (const s of l) { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); ctl.sendSysex(u); }
+    }, 40);
+  });
   if (window.vibe_log) window.vibe_log('plugin mode started');
   if (window.vibe_ready) window.vibe_ready();         // (now the whole picture: one sent before this point is lost)
   await pluginLibrary();
 }
 // Web MIDI as the plugin delivers it (vibe_midi_ports / vibeMidi): the same MIDIAccess shape controllers.js expects
+// (0.7.2) no CoreMIDI binding (Windows: WebView2 has Web MIDI itself): its ports as they are, plus the DAW's input – since
+// 0.7.0 the window saw only the DAW there, its controllers and an FM-1's SysEx were gone (Andrew GG, issue #2)
 function pluginMidi() {
   const inputs = new Map(), outputs = new Map(), access = { inputs, outputs, onstatechange: null };
+  const native = !window.vibe_midi_ports && navigator.requestMIDIAccess ? navigator.requestMIDIAccess.bind(navigator) : null;
+  let nat = null;
   const LEN = (b) => (b >= 0xF8 || b === 0xF6 || b === 0xF4 || b === 0xF5) ? 1 : (b & 0xF0) === 0xC0 || (b & 0xF0) === 0xD0 || b === 0xF1 || b === 0xF3 ? 2 : 3;
   const sync = async () => {
-    let l = { in: [], out: [] }; try { l = JSON.parse(await window.vibe_midi_ports()); } catch (e) { /* none */ }
+    let l = { in: [], out: [] }; if (window.vibe_midi_ports) try { l = JSON.parse(await window.vibe_midi_ports()); } catch (e) { /* none */ }
     const keep = new Map(); inputs.forEach((p) => keep.set(p.id, p.onmidimessage));
     inputs.clear(); outputs.clear();
     l.in.forEach((name, i) => inputs.set('in' + i, { id: 'in' + i, name, onmidimessage: keep.get('in' + i) || null }));
     l.out.forEach((name, i) => outputs.set('out' + i, { id: 'out' + i, name, send: (d) => window.vibe_midi_send(i, Array.from(d)) }));
+    if (nat) { nat.inputs.forEach((p) => inputs.set(p.id, p)); nat.outputs.forEach((p) => outputs.set(p.id, p)); }   // (the real ports: their handlers stay on them)
     inputs.set('daw', { id: 'daw', name: 'DAW', onmidimessage: keep.get('daw') || null });   // (0.7.0: the DAW's MIDI, while Setup / Learn listen)
+  };
+  const open = async (o) => {
+    if (!native || nat) return;
+    try { nat = await native(o || { sysex: true }); } catch (e) { try { nat = await native(); } catch (e2) { return; } }
+    nat.onstatechange = () => { sync().then(() => { if (access.onstatechange) access.onstatechange(); }); };
   };
   window.vibeDawMidi = (list) => { const p = inputs.get('daw'); for (const m of list) { if (dawTap && dawTap(m)) continue; if (p && p.onmidimessage) p.onmidimessage({ data: Uint8Array.from(m) }); } };
   window.vibeMidi = (i, bytes) => {                   // one CoreMIDI packet: split into messages (running status kept)
@@ -887,7 +911,8 @@ function pluginMidi() {
     }
   };
   window.vibeMidiPorts = async () => { await sync(); if (access.onstatechange) access.onstatechange(); };
-  Object.defineProperty(navigator, 'requestMIDIAccess', { configurable: true, value: async () => { await sync(); return access; } });
+  Object.defineProperty(navigator, 'requestMIDIAccess', { configurable: true, value: async (o) => { await open(o); await sync(); return access; } });
+  return !!(window.vibe_midi_ports || native);        // (the window reads controllers itself)
 }
 async function pluginLibrary() {
   try { library = JSON.parse(await window.vibe_library()); } catch (e) { library = []; }

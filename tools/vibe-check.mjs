@@ -221,6 +221,23 @@ function playRun(h, draw) {
     return Math.sqrt(sum / Math.max(1, n));
   } catch (e) { return -1; }
 }
+// Protokoll 3.2 (3.11.2026): a button's state is only `down`, its value always 0 – the VIBE's buttons pressed one by one
+// (F1-F6, K1-K6, MENU, ◀ ▶, REC STOP PLAY) with this value: how many of them changed the display (S1VAVE 1.12 tested
+// e->value – no button reacted in the browser or on the VIBE, only through a controller profile's 0.9)
+function buttonRun(h, value) {
+  const x = h.inst.exports;
+  try {
+    h.inAudio = false; x.vibe_wasm_init(SR);
+    const blocks = (n) => { for (let b = 0; b < n; b++) { h.inAudio = true; x.vibe_wasm_audio(BLOCK, 0); h.inAudio = false; } };
+    const pic = () => { const p = x.vibe_wasm_draw(), u = new Uint32Array(x.memory.buffer, p, 480 * 320 / 2); let k = 0; for (let i = 0; i < u.length; i++) k = (k * 31 + u[i]) >>> 0; return k; };
+    blocks(Math.ceil(2 * SR / BLOCK)); let last = pic(), changed = 0;
+    for (const id of [0, 1, 2, 3, 4, 5, 10, 11, 12, 13, 14, 15, 19, 18, 20, 21, 22, 23]) {
+      x.vibe_wasm_event(3, id, 1, value, 0); blocks(8); x.vibe_wasm_event(3, id, 0, 0, 0); blocks(24);
+      const now = pic(); if (now !== last) changed++; last = now;
+    }
+    return changed;
+  } catch (e) { return -1; }
+}
 // random events of every type, out-of-range ids, unknown types, releases without a press (section 7)
 function fuzzEvent(x0, held) {
   const x = { vibe_wasm_event: (...a) => { last.push(a); if (last.length > 6) last.shift(); x0.vibe_wasm_event(...a); } };
@@ -257,6 +274,12 @@ if (r1.trap && process.env.VIBE_STACK) console.error(r1.stack);
   if (withDraw > 0.001) check('Flow', noDraw > withDraw * 0.3, noDraw > withDraw * 0.3 ? 'plays even when the host does not draw (plugin with its window closed)'
     : `plays only while drawing (level ${withDraw.toFixed(3)} with, ${noDraw.toFixed(3)} without draw) – time-critical work does not belong in vibe_on_draw (section 9)`);
   else check('Flow', null, 'no sound on key/MIDI note – "plays without draw" not checked');
+}
+{ // Protokoll 3.2: buttons by `down` alone – a host sends value 0 with every button
+  const n0 = buttonRun(host(new Map()), 0), n9 = buttonRun(host(new Map()), 0.9);
+  if (n0 > 0) check('Events', true, `buttons: ${n0} of 18 change the display (pressed = e->down)`);
+  else if (n9 > 0) check('Events', false, `no button reacts – only with value > 0 (${n9} of 18). For VIBE_EV_BUTTON pressed is only e->down, value is always 0: if (e->down) instead of if (e->value > 0) (Protocol 3.2)`);
+  else if (n0 === 0) check('Events', null, 'no button changes the display – on purpose? (checked: F1–F6, K1–K6, MENU, ◀ ▶, REC, STOP, PLAY)');
 }
 
 // Protokoll 8: worker jobs – the same, bit for bit, in any order (a job that leans on another's memory sounds different

@@ -69,7 +69,8 @@ The host calls all four from **one thread, one after the other** – no locks, n
 - 25 keys (`VIBE_EV_KEY`, id 0..24, velocity 0..1), 16 RGB pads (`VIBE_EV_PAD`, id 0..15), encoders `VE_1`..`VE_4`,
   `VE_A`, `VE_B`, `VE_DATA` (`VIBE_EV_ENCODER`, value = detents turned, may be fractional), buttons `enum vibe_button`
   (`VIBE_EV_BUTTON`: F1–F6 under the display, K1–K6 right of ENTER, SHIFT, OCT −/+, ENTER, RETURN, HOME, ◀ MENU ▶,
-  REC STOP PLAY, DATA push).
+  REC STOP PLAY, DATA push). **A button is pressed when `e->down` is 1 – `e->value` is always 0 for buttons**, in every
+  host: test `if (e->down)`, never the value (vibe-check fails a firmware that does).
 - **HOME** belongs to the firmware library: on `VB_HOME` down call `vibe_request(VIBE_REQ_FIRMWARE_MENU)`.
 - Lights: `vibe_led_pad`, `vibe_led_button`; captions for F1–F6 and K1–K6: `vibe_label` (≤ 7 characters).
 - The house style for the six keys right of ENTER (K1–K6): **SOUND · ENV · LFO · ARP · FX · SEQ** where it fits; draw

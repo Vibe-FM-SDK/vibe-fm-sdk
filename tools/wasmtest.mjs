@@ -90,7 +90,7 @@ for (let b = 0; b < total; b++) {
       const vt = new Uint32Array(e.memory.buffer, e.vibe_wasm_time(), 8), f = Math.max(0, b * block - Math.round((s.heard ?? 0) * sr / 1000));
       vt[0] = f >>> 0; vt[1] = Math.floor(f / 4294967296); vt[2] = 0; vt[3] = 0; vt[4] = s.heard !== undefined ? 1 : 0;
     }
-    if (s.ev) e.vibe_wasm_event(s.ev[0], s.ev[1], s.ev[2], s.ev[3] ?? 0, s.ev[4] ?? 0);
+    if (s.ev) e.vibe_wasm_event(s.ev[0], s.ev[1], s.ev[2], s.ev[0] === 3 ? 0 : s.ev[3] ?? 0, s.ev[4] ?? 0);   // (a button: value 0, as every host – Protokoll 3.2)
     if (s.shot) shots.push(s.shot);
     if (s.media_remove) media.remove(s.media_remove);
     if (s.media_add) for (const [k, v] of Object.entries(mediaSrc(s.media_add))) media.add(k, v);

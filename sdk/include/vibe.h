@@ -102,7 +102,8 @@ enum vibe_encoder { VE_1, VE_2, VE_3, VE_4, VE_A, VE_B, VE_DATA, VE_COUNT,
 typedef enum {
   VIBE_EV_PAD = 1,      /* id 0..15 (a bigger grid: 0..pads-1, SDK 20), down 1/0, value = velocity 0..1 (on release: 0) */
   VIBE_EV_KEY = 2,      /* id 0..24,  down 1/0, value = velocity 0..1 */
-  VIBE_EV_BUTTON = 3,   /* id enum vibe_button, down 1/0 */
+  VIBE_EV_BUTTON = 3,   /* id enum vibe_button, down 1/0 – pressed or not is ONLY e->down; value is always 0 for a
+                           button (every host) – test e->down, never e->value */
   VIBE_EV_ENCODER = 4,  /* id enum vibe_encoder, value = turn in detents (+ clockwise), may be fractional */
   VIBE_EV_MIDI = 5,     /* midi[0..2] = raw MIDI message from USB */
   VIBE_EV_PEDAL = 6,    /* PEDAL jack (6.3 mm TRS, detected automatically): id VIBE_PEDAL_SWITCH: down 1/0,

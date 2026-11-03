@@ -43,7 +43,7 @@ const ENC_NAME = ['1', '2', '3', '4', 'A', 'B', 'DATA'];
 const BTN_NAME = Object.keys(BTN).filter((k) => k !== 'COUNT');
 function binding(e) {   // a profile's entry -> what generic() sends
   const label = e.label || (e.to + (e.id !== undefined ? ' ' + e.id : ''));
-  if (e.to === 'encoder' && ENC_ID[e.id] !== undefined) return { type: EV.ENCODER, id: ENC_ID[e.id], label, preset: true };
+  if (e.to === 'encoder' && ENC_ID[e.id] !== undefined) return { type: EV.ENCODER, id: ENC_ID[e.id], label, preset: true, knobs: e.knobs };   // (0.7.3: its own "knobs")
   if (e.to === 'button' && BTN[e.id] !== undefined) return { type: EV.BUTTON, id: BTN[e.id], label, hold: e.id === 'SHIFT', preset: true };
   if (e.to === 'pad' && e.id >= 1 && e.id <= 16) return { type: EV.PAD, id: e.id - 1, label, preset: true };
   if (e.to === 'volume') return { type: 'volume', label: 'VOLUME', preset: true };
@@ -54,6 +54,7 @@ function binding(e) {   // a profile's entry -> what generic() sends
 }
 const REL2C = (v) => (v >= 1 && v <= 15) || (v >= 113 && v <= 127);   // relative, two's complement: 1 = +1, 127 = -1
 const REL64 = (v) => v >= 57 && v <= 71 && v !== 64;                   // relative around 64: 63 = -1, 65 = +1
+const KNOBS = ['abs', 'rel64', 'rel2c', 'relsm'];                        // a profile's / an entry's "knobs" ("auto" or none: guessed)
 
 export class Controllers {
   constructor(send, status, activity) {
@@ -97,8 +98,18 @@ export class Controllers {
   setOut(name) { this.outName = name || ''; try { localStorage.setItem('vibe.midiout', this.outName); } catch (e) { /* private mode */ } this.pickOut(); }
   pickOut() { this.outPort = null; if (this.access && this.outName) this.access.outputs.forEach((o) => { if (o.name === this.outName) this.outPort = o; }); }
   outPorts() { const l = []; if (this.access) this.access.outputs.forEach((o) => { if (!isLaunchpad(o.name)) l.push(o.name); }); return l; }
+  // SDK 15: a SysEx the firmware sends goes to the chosen port – none chosen: to every device that is an input and an
+  // output alike (an FM-1, a synth: it can answer), never a Launchpad or a DAW's side port
+  sysexPorts() {
+    if (this.outPort) return [this.outPort];
+    const ins = new Set(), l = []; if (!this.access) return l;
+    this.access.inputs.forEach((i) => ins.add(i.name));
+    this.access.outputs.forEach((o) => { if (ins.has(o.name) && !isLaunchpad(o.name) && !isSidePort(o.name) && !isDawPort(o.name)) l.push(o); });
+    return l;
+  }
+  sendSysex(bytes) { for (const o of this.sysexPorts()) { try { o.send(bytes); } catch (e) { /* no SysEx allowed, or the port gone */ } } }
   midiOut(msgs, ctx) {                              // msgs: [[contextSeconds, b0, b1, b2?], …] from the worklet, after its block
-    if (!this.outPort) return;
+    if (!this.outPort) { for (const m of msgs) if (m[1] === 0xF0) this.sendSysex(m.slice(1)); return; }
     const now = performance.now(), t0 = ctx ? ctx.currentTime : 0, lat = ctx && ctx.outputLatency ? ctx.outputLatency : 0;
     for (const m of msgs) {
       const at = ctx ? now + Math.max(0, (m[0] - t0 + lat) * 1000) : 0;
@@ -189,6 +200,9 @@ export class Controllers {
 
   // ---------------------------------------------------------------- everything else: drum pads, MIDI-Learn
   generic(dev, d) {
+    // SDK 15: a SysEx from a MIDI input (an FM-1's patch dump) – to the firmware as VIBE_EV_SYSEX (host.js onSysex), in the
+    // browser and in the plugin (0.7.2: most DAWs hand a plugin no SysEx, its window's own ports do); never a controller's
+    if (d[0] === 0xF0) { if (dev !== 'DAW' && this.onSysex) this.onSysex(d); return; }
     const st = d[0] & 0xF0, ch = d[0] & 15, n = d[1], v = d[2] ?? 0;
     // the VIBE FM Plugin (0.7.0): the controller plays into the DAW, the plugin applies its profile itself (vibe_controller.cpp,
     // window open or closed); here only Setup / Learn, from the DAW's MIDI the plugin hands over ("DAW")
@@ -244,7 +258,9 @@ export class Controllers {
     if (b) {
       if (b.type === EV.ENCODER || b.type === 'volume') {
         if (isNote) { if (down) this.send(EV.ENCODER, b.id, 0, 1); return; }
-        const det = (this.profileOf(dev) || {}).knobs === 'relsm' ? (v < 64 ? v : 64 - v) : this.knobDelta(key, v);   // (relsm: Mackie V-pots, sign and size)
+        // the knob's kind: the entry's own "knobs" (0.7.3 – the MPK mini's DATA push encoder), else the profile's, else guessed
+        const km = KNOBS.includes(b.knobs) ? b.knobs : (this.profileOf(dev) || {}).knobs;
+        const det = km === 'relsm' ? (v < 64 ? v : 64 - v) : this.knobDelta(key, v, KNOBS.includes(km) ? km : undefined);   // (relsm: Mackie V-pots, sign and size)
         if (b.type === 'volume') {   // VOLUME is the runtime's (a real pot on the device): absolute knob = the position, relative = nudges
           const cur = this.getVolume ? this.getVolume() : 0.8;
           if (this.onVolume) this.onVolume(this.mode.get(key) === 'abs' ? v / 127 : Math.min(1, Math.max(0, cur + det / 48)));
@@ -361,10 +377,12 @@ export class Controllers {
   // 65 = +1) or two's complement (1 = +1, 127 = -1). The mode is decided from the first values and then remembered:
   // relative when the values only ever sit in a relative range (two in a row), absolute otherwise. Until then small
   // differences are passed on, so the knob never feels dead and an absolute knob that starts near 64 is not mistaken.
-  knobDelta(key, v) {
+  knobDelta(key, v, fixed) {
     let mode = this.mode.get(key);
     const last = this.last.get(key); this.last.set(key, v);
     const h = this.hist.get(key) || []; h.push(v); if (h.length > 4) h.shift(); this.hist.set(key, h);
+    if (fixed) { this.mode.set(key, fixed); mode = fixed; }   // (0.7.3: the profile says what it is – no guessing; as the plugin)
+    else
     // (31.10., from an MPK mini in both presets: as vibe_controller.cpp knobDelta) 16-56 / 72-112: absolute, settled; a jump
     // across the ends (127 → 1): relative, settled; a value repeated at once: relative – a known absolute one: three alike
     {

@@ -241,6 +241,21 @@ A device may have more than 16 pads, up to 128, as a grid: the VIBE's 4 × 4, a 
 reach every pad. Nothing changes on the VIBE, in the plugin or in the emulator: there the grid is 4 × 4, as always.
 **[DEVICES.md](DEVICES.md)** has the details.
 
+## New on 3 November: buttons, endless encoders, the `.vibe.aot` by hand
+
+- **Buttons: pressed is only `e->down`.** For `VIBE_EV_BUTTON`, `e->value` is always 0 – in the plugin, the emulator and
+  on the VIBE alike. Test `if (e->down)`, never `if (e->value > 0)`: such a firmware reacts to no button at all.
+  `vibe-check` now presses 18 buttons and fails it, with the fix in its message.
+- **Endless encoders in profiles:** a control can have its own `"knobs"` (`rel2c` …), see [CONTROLLERS.md](CONTROLLERS.md).
+- **The `.vibe.aot` by hand** (your own build path, your own device – the VIBE FM host on a Raspberry Pi): WAMR **2.2.0**,
+  ```
+  wamrc --target=aarch64v8 --cpu=cortex-a53 --opt-level=3 --disable-aux-stack-check --enable-multi-thread \
+        -o <id>.vibe.aot <id>.wasm
+  ```
+  Without it the host runs the `.wasm` in its interpreter, about ten times slower (and now says so loudly).
+  `--enable-multi-thread` is needed for shared memory and worker jobs. Thanks to Lars / MandaLars, who worked it out
+  himself for the SOUNDMASCHINE on a Pi 5 before it was written down here.
+
 ## Updates
 
 This repository is where the SDK grows: `git pull` brings new versions, the **issues** are the place for questions,

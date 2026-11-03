@@ -1,36 +1,125 @@
 {
   "format": 1,
-  "name": "Akai MPK mini IV / MK3",
-  "match": ["MPK mini"],
+  "name": "Akai MPK mini IV",
+  "match": [
+    "MPK mini IV",
+    "MPK mini 4",
+    "MPK mini"
+  ],
   "knobs": "auto",
-  "pads": { "channel": 10, "note": 36, "rows": "bottom-up" },
+  "pads": {
+    "channel": 10,
+    "note": 36,
+    "rows": "bottom-up"
+  },
   "map": [
-    { "cc": 24, "to": "encoder", "id": "1" },
-    { "cc": 25, "to": "encoder", "id": "2" },
-    { "cc": 26, "to": "encoder", "id": "3" },
-    { "cc": 27, "to": "encoder", "id": "4" },
-    { "cc": 28, "to": "encoder", "id": "DATA" },
-    { "cc": 29, "to": "volume" },
-    { "cc": 30, "to": "encoder", "id": "A" },
-    { "cc": 31, "to": "encoder", "id": "B" },
-    { "cc": 70, "to": "encoder", "id": "1" },
-    { "cc": 71, "to": "encoder", "id": "2" },
-    { "cc": 72, "to": "encoder", "id": "3" },
-    { "cc": 73, "to": "encoder", "id": "4" },
-    { "cc": 74, "to": "encoder", "id": "DATA" },
-    { "cc": 75, "to": "volume" },
-    { "cc": 76, "to": "encoder", "id": "A" },
-    { "cc": 77, "to": "encoder", "id": "B" },
-    { "cc": 17, "port": "DAW", "to": "button", "id": "SHIFT" },
-    { "cc": 14, "port": "DAW", "to": "encoder", "id": "DATA" },
-    { "cc": 13, "port": "DAW", "to": "button", "id": "ENTER" },
-    { "cc": 78, "port": "DAW", "to": "button", "id": "ENTER" },
-    { "cc": 73, "port": "DAW", "to": "button", "id": "HOME" },
-    { "cc": 76, "port": "DAW", "to": "button", "id": "PLAY" },
-    { "cc": 74, "port": "DAW", "to": "button", "id": "STOP" },
-    { "cc": 77, "port": "DAW", "to": "button", "id": "REC" },
-    { "cc": 80, "port": "DAW", "to": "area", "dir": -1 },
-    { "cc": 81, "port": "DAW", "to": "area", "dir": 1 },
-    { "cc": 82, "port": "DAW", "to": "area", "dir": 0 }
-  ]
+    {
+      "cc": 24,
+      "to": "encoder",
+      "id": "1"
+    },
+    {
+      "cc": 25,
+      "to": "encoder",
+      "id": "2"
+    },
+    {
+      "cc": 26,
+      "to": "encoder",
+      "id": "3"
+    },
+    {
+      "cc": 27,
+      "to": "encoder",
+      "id": "4"
+    },
+    {
+      "cc": 28,
+      "to": "encoder",
+      "id": "A"
+    },
+    {
+      "cc": 29,
+      "to": "encoder",
+      "id": "B"
+    },
+    {
+      "cc": 30,
+      "to": "knob",
+      "id": 7
+    },
+    {
+      "cc": 31,
+      "to": "encoder",
+      "id": "DATA"
+    },
+    {
+      "cc": 17,
+      "port": "DAW",
+      "to": "button",
+      "id": "SHIFT"
+    },
+    {
+      "cc": 14,
+      "port": "DAW",
+      "to": "encoder",
+      "id": "DATA",
+      "knobs": "rel2c"
+    },
+    {
+      "cc": 13,
+      "port": "DAW",
+      "to": "button",
+      "id": "ENTER"
+    },
+    {
+      "cc": 78,
+      "port": "DAW",
+      "to": "button",
+      "id": "ENTER"
+    },
+    {
+      "cc": 73,
+      "port": "DAW",
+      "to": "button",
+      "id": "HOME"
+    },
+    {
+      "cc": 76,
+      "port": "DAW",
+      "to": "button",
+      "id": "PLAY"
+    },
+    {
+      "cc": 74,
+      "port": "DAW",
+      "to": "button",
+      "id": "STOP"
+    },
+    {
+      "cc": 77,
+      "port": "DAW",
+      "to": "button",
+      "id": "REC"
+    },
+    {
+      "cc": 80,
+      "port": "DAW",
+      "to": "area",
+      "dir": -1
+    },
+    {
+      "cc": 81,
+      "port": "DAW",
+      "to": "area",
+      "dir": 1
+    },
+    {
+      "cc": 82,
+      "port": "DAW",
+      "to": "area",
+      "dir": 0
+    }
+  ],
+  "note": "K1-K4 = encoders 1-4, K5 / K6 = A / B, K7 = knob 7, K8 = DATA (the preset). In the VIBE FM VST's Editor: K1-K4 the focused card's knobs, K5 its tabs (a choice), K6 the card, K7 the track, K8 DATA (that track's preset) (31.10.2026, Sven) \u2013 the push encoder (CC 14, DAW port) DATA as well. For VIBE FM: the MPK in its PLUGIN preset (absolute knobs, every key); its DAW preset is for steering the DAW"
 }

@@ -6,7 +6,7 @@
 <meta name="robots" content="noindex, nofollow">
 <meta name="theme-color" content="#0B0C0E">
 <meta name="description" content="VIBE FM Mk1 in the browser: play the device with its real firmware – pads, keys, sequencer, synth.">
-<title>VIBE FM Mk1 · Emulator</title>
+<title>VIBE FM Mk1 · Web Player</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%23111214'/%3E%3Crect x='6' y='6' width='9' height='9' rx='2' fill='%23FF6A1A'/%3E%3Crect x='17' y='6' width='9' height='9' rx='2' fill='%233FA9F5'/%3E%3Crect x='6' y='17' width='9' height='9' rx='2' fill='%23F5C93F'/%3E%3Crect x='17' y='17' width='9' height='9' rx='2' fill='%236EE7A8'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="css/vibe.css">
 <style>
@@ -19,10 +19,15 @@
   .stagewrap.drop::after { content: 'Drop firmware (.wasm) here'; position: absolute; inset: 0; z-index: 20; display: grid; place-items: center; border: 3px dashed var(--accent); border-radius: 30px; background: rgba(11, 12, 14, 0.7); font: 800 28px var(--sans); color: var(--fg); }
   .dispmenu p { margin: 0 0 8px; color: #8A93A6; font-size: 11px; }
 </style>
+<style>/* (3.11.2026) the legal line under the device – not in the plugin window */
+  .legal { text-align: center; font: 12px var(--sans, system-ui, sans-serif); color: #6B7080; padding: 10px 16px 18px; }
+  .legal a { color: #9AA0AE; text-decoration: none; } .legal a:hover { color: #FF6A1A; text-decoration: underline; }
+  body.plugin .legal, body.editing .legal { display: none; }
+</style>
 </head>
 <body>
 <header class="topbar">
-  <div class="brand"><b>VIBE</b> <em>FM</em> <span>Mk1</span> <small>Emulator · VIBE FM Protokoll 7</small></div>
+  <div class="brand"><b>VIBE</b> <em>FM</em> <span>Mk1</span> <small>Web Player · VIBE FM Protokoll 8 · SDK 20</small></div>
   <nav class="tools" aria-label="Tools">
     <select id="fw" aria-label="Firmware"></select>
     <label class="viewsel" title="Editor: every parameter at once · Full: the whole device · Rack: the device without keys and pads, the display bigger · Display: just the screen, pixel-exact">View
@@ -73,6 +78,7 @@
   </div>
   <div id="rear" class="rear" aria-label="Rear panel: connectors"></div>
   <p id="status" class="status" role="status"></p>
+  <footer class="legal">© 2026 Sven Trogus · Designburg · <a href="https://thefirmwarehub.com/impressum/" target="_blank" rel="noopener">Impressum</a> · <a href="https://thefirmwarehub.com/impressum/#datenschutz" target="_blank" rel="noopener">Datenschutz</a> · <a href="https://thefirmwarehub.com/" target="_blank" rel="noopener">thefirmwarehub.com</a></footer>
 </main>
 
 <aside id="cheat" class="cheat" aria-label="Firmware cheat sheet" hidden><p class="none">Power on – then this shows how to play the running firmware.</p></aside>

@@ -189,7 +189,13 @@ class VibeHost extends AudioWorkletProcessor {
             vt[0] = f >= 0 ? f >>> 0 : 0; vt[1] = f >= 0 ? Math.floor(f / 4294967296) : 0; vt[4] = f >= 0 ? 1 : 0;
           }
           this.mediaEvents();
-          this.x.vibe_wasm_event(d.type, d.id, d.down, d.value, d.midi || 0);
+          this.x.vibe_wasm_event(d.type, d.id, d.down, d.type === 3 ? 0 : d.value, d.midi || 0);   // (Protokoll 3.2, 3.11.2026: a button's value is always 0 – pressed is only down; every host alike, so a firmware that tests the value fails at once, not only without a controller)
+        }
+        else if (d.t === 'sysex') {                       // SDK 15 (Protokoll 7.5): a SysEx from a MIDI input → VIBE_EV_SYSEX
+          const x = this.x, b = d.bytes;
+          if (x.vibe_wasm_sysex_buf && x.vibe_wasm_sysex_in && b.length >= 2 && b.length <= 4096 && b[0] === 0xF0) {
+            new Uint8Array(x.memory.buffer, x.vibe_wasm_sysex_buf(), b.length).set(b); x.vibe_wasm_sysex_in(b.length);
+          }
         }
         else if (d.t === 'latency') { if (this.vt) new Uint32Array(this.x.memory.buffer, this.vt, 8)[2] = d.frames; }
         else if (d.t === 'storeput') store.set(d.name, d.data);

@@ -37,6 +37,7 @@ buttons and pads as always. The same file works everywhere. Profiles live in `co
 |---|---|
 | `match` | part of the MIDI port's name (any case) |
 | `knobs` | `auto` (the host finds out), `abs`, `rel64`, `rel2c`, `relsm` (Mackie V-pots) |
+| `map[].knobs` | (VIBE FM VST 0.7.3, the emulator, vibe-host) the same, for this one control – before the profile's; what it says is never guessed. For endless encoders the guessing gets wrong: the MPK mini's DATA wheel (CC 14: `1` / `127`, fast `2`–`3` / `125`–`126`) is `rel2c` |
 | `pads` | the drum pads as a block of notes: `channel`, first `note`, `rows` `top-down` or `bottom-up` – or (SDK 20) `notes`: each pad's note in turn, for a grid that does not count straight (a Launchpad in programmer mode: `[81, 82, … 88, 71, … 18]`). How many pads there are, the device says (`device.json`, else 16) |
 | `map[]` | source: `cc` or `note` (optionally `channel` 1–16 and `port`, part of a port name). `to`: `encoder` (`1`–`4`, `A`, `B`, `DATA`), `button` (`F1`…`F6`, `K1`…`K6`, `SHIFT`, `OCT_DOWN`, `OCT_UP`, `ENTER`, `RETURN`, `HOME`, `LEFT`, `MENU`, `RIGHT`, `REC`, `STOP`, `PLAY`, `DATA_PUSH`), `pad` (1–16), `volume`, `area` (`dir` −1 / +1 / 0), `library` (the firmware library), `mix` (below) |
 
