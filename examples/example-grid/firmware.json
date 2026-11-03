@@ -1,0 +1,1 @@
+{"name": "GRID", "version": "1.0", "author": "Designburg", "description": "Example: a pad grid of any shape (SDK 20) – every pad a note, 4 × 4 on the VIBE, 8 × 8 with a Launchpad", "license": "Apache-2.0", "order": 9, "library": false}

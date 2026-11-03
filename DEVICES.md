@@ -69,6 +69,12 @@ vibe_device_info d; vibe_device(&d);
 int cols = d.pad_cols, rows = d.pad_rows;      // 4 x 4 on the VIBE, 8 x 8 on a Launchpad-style grid, 20 x 4 …
 ```
 
+**Try it with a Launchpad:** in the emulator, *Controllers ▾ → Launchpad as 8 × 8 pads* – your firmware starts again
+and gets 64 pads (8 × 8): a Launchpad Mini MK3's whole grid is its pads, the top row and the right column stay VIBE
+buttons, the pads on the screen are pads 0–15. The VIBE FM host does the same when its `device.json` says 8 × 8.
+`examples/example-grid` (GRID) plays on any grid: start there. Without a Launchpad: `tools/wasmtest.mjs` takes
+`"device": {"pads": 64, "pad_cols": 8, "pad_rows": 8}` in its script. (The VIBE FM VST plugin: not yet.)
+
 ## For device makers: answering the question
 
 `vibe_device()` calls `vibe_host_store(14, "", 0, data, 52)`. A host that describes its device fills the 52 bytes and

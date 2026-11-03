@@ -60,6 +60,7 @@ export class Controllers {
   constructor(send, status, activity) {
     this.send = send; this.status = status; this.activity = activity || (() => {});
     this.access = null; this.lpOut = null; this.lpState = new Map(); this.lpHeld = new Set();
+    this.lpGrid = false;   // (3.11.2026) the Launchpad's 8 x 8 as the firmware's pads (64, SDK 20) – the page sets it with the device
     this.learning = false; this.target = null; this.last = new Map(); this.mode = new Map(); this.wiz = null;
     try { this.bind = JSON.parse(localStorage.getItem('vibe.midimap') || '{}'); } catch (e) { this.bind = {}; }
     // the global MIDI channel: 0 = all; else only channel messages on this channel reach the firmware (pads on
@@ -154,6 +155,7 @@ export class Controllers {
       const row = Math.floor(n / 10), col = n % 10;
       if (row < 1 || row > 8 || col < 1 || col > 8) return;
       if (down) this.lpHeld.add(n); else this.lpHeld.delete(n);
+      if (this.lpGrid) { this.send(EV.PAD, (8 - row) * 8 + col - 1, down, down ? 0.9 : 0); return; }   // (8 x 8: pad 0 top left, row by row)
       if (row >= 5) {
         const r = 8 - row;
         if (col <= 4) this.send(EV.PAD, r * 4 + col - 1, down, down ? 0.9 : 0);
@@ -170,7 +172,7 @@ export class Controllers {
     }
   }
   // the firmware's lights -> the Launchpad (only what changed, ~20 times a second)
-  lights(buf) {
+  lights(buf, padx) {
     {   // where the firmware is: the one colour key it lights (OberVave: SEQ in the sequencer, however it was entered) –
         // TAP TEMPO repeats it, − / + go on from it; none lit (MIXER, GLOBAL): the area key pressed last counts
       const f = new Float32Array(buf), lit = [0, 1, 2, 3, 4, 5].filter((i) => f[32 + BTN.COUNT + BTN.K1 + i] >= 0.9);
@@ -182,6 +184,13 @@ export class Controllers {
     const want = new Map();
     const rgb = (c, lvl, min = 0) => { const l = Math.max(min, Math.min(1, lvl)); return [((c >> 16) & 255) * l / 2 | 0, ((c >> 8) & 255) * l / 2 | 0, (c & 255) * l / 2 | 0]; };
     const btn = (id) => rgb(u[2 * P + id], f[2 * P + B + id], 0) .map((v, i) => Math.max(v, 6 + (i === 2 ? 2 : 0)));   // unlit = faint, so you see where the buttons are
+    if (this.lpGrid) {   // 8 x 8: every pad's light (SDK 20's table; a firmware without it: its first 16 from the base lights)
+      const pu = padx ? new Uint32Array(padx) : null, pf = padx ? new Float32Array(padx) : null;
+      for (let p = 0; p < 64; p++) {
+        const led = (8 - Math.floor(p / 8)) * 10 + (p % 8) + 1;
+        want.set(led, pu ? rgb(pu[1 + p], pf[129 + p]) : p < 16 ? rgb(u[p], f[P + p]) : [0, 0, 0]);
+      }
+    } else {
     for (let r = 0; r < 4; r++) for (let c = 0; c < 4; c++) {
       const p = r * 4 + c; want.set((8 - r) * 10 + c + 1, rgb(u[p], f[P + p]));
       want.set((8 - r) * 10 + c + 5, btn(LP_BUTTONS[r][c]));
@@ -190,6 +199,7 @@ export class Controllers {
       const n = row * 10 + col, black = row === 2 || row === 4, semi = (black ? BLACK : WHITE)[col - 1];
       if (semi === null || semi === undefined) { want.set(n, [0, 0, 0]); continue; }
       want.set(n, this.lpHeld.has(n) ? [127, 52, 12] : black ? [6, 10, 24] : [22, 22, 22]);
+    }
     }
     LP_TOP.forEach((b, i) => want.set(91 + i, btn(b)));
     Object.keys(LP_RIGHT).forEach((k) => want.set(+k, LP_RIGHT[k][0] === 'b' ? btn(LP_RIGHT[k][1]) : [10, 10, 14]));

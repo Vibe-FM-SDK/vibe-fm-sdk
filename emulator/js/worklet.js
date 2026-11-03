@@ -149,6 +149,10 @@ class VibeHost extends AudioWorkletProcessor {
             for (const k of [...store.keys()].sort()) { const b = utf8(k + '\n'); if (w + b.length > len) break; out.set(b, w); w += b.length; }   // (no TextEncoder in an AudioWorklet)
             return w;
           }
+          if (op === 14) {                                   // SDK 19/20: the device (52 bytes, Protokoll 15b) – the page's, e.g. a Launchpad as an 8 x 8 grid
+            const dv = options.processorOptions.device; if (!dv || len < dv.length) return -1;
+            new Uint8Array(mem.buffer, dp, dv.length).set(dv); return 1;
+          }
           if (op >= 6) return this.media.store(op, new Uint8Array(mem.buffer), new DataView(mem.buffer), np, nl, dp, len, text, utf8);   // SDK 13: media
           if (op === 5) {                                    // SDK 4: read at an offset (in the data's first 4 bytes)
             if (!f) return -1; const off = new DataView(mem.buffer).getUint32(dp, true);
@@ -158,6 +162,7 @@ class VibeHost extends AudioWorkletProcessor {
         },
       } });
       const x = this.inst.exports; mem = x.memory; this.x = x;
+      this.grid = !!options.processorOptions.device;   // (SDK 20: a grid bigger than 16 – its pads' lights go out with every frame)
       this.sdk = x.vibe_sdk_version();
       if (this.sdk < 1 || this.sdk > 8) throw new Error('firmware needs VIBE SDK ' + this.sdk);
       x.vibe_wasm_init(sampleRate);
@@ -234,7 +239,9 @@ class VibeHost extends AudioWorkletProcessor {
               if (n > 0 && n <= 4096) { posts = [new Uint8Array(this.x.memory.buffer, o + 4, n).slice()]; dv.setUint32(o, 0, true); }
             }
           }
-          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts }, labels ? [fb.buffer, leds.buffer, labels.buffer] : [fb.buffer, leds.buffer]);
+          const padx = this.grid && this.x.vibe_wasm_pad_leds ? new Uint8Array(this.x.memory.buffer, this.x.vibe_wasm_pad_leds(), 4 + 128 * 8).slice() : null;   // (SDK 20: n, rgb[128], lvl[128])
+          const tr = labels ? [fb.buffer, leds.buffer, labels.buffer] : [fb.buffer, leds.buffer]; if (padx) tr.push(padx.buffer);
+          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts, padx: padx && padx.buffer }, tr);
         }
       } catch (e) { this.crash(e); }
     };

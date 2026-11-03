@@ -58,6 +58,17 @@ async function loadLibrary() {
   const sel = $('#fw');
   sel.innerHTML = library.map((f) => `<option value="${f.id}">${f.name} ${f.version || ''}</option>`).join('') + '<option value="__file">Load your own .wasm …</option>';
 }
+// (3.11.2026) a Launchpad as an 8 x 8 grid: the firmware gets 64 pads (vibe_device(), SDK 20) – Controllers ▾, remembered;
+// the on-screen pads are pads 0-15 then (the grid's top two rows), the Launchpad's top row and right column stay VIBE buttons
+let lpGrid = false; try { lpGrid = localStorage.getItem('vibe.lpgrid') === '1'; } catch (e) { /* private mode */ }
+ctl.lpGrid = lpGrid;
+function deviceBytes() {                             // Protokoll 15b, 52 bytes (sdk/include/vibe.h vibe_device_info)
+  if (!lpGrid || PLUGIN) return undefined;
+  const b = new Uint8Array(52); b.set([25, 64, 0, 0, 0, 0, 8, 8], 0);
+  b[16] = 480 & 255; b[17] = 480 >> 8; b[18] = 320 & 255; b[19] = 320 >> 8;
+  const n = 'VIBE FM + Launchpad 8x8'; for (let i = 0; i < n.length; i++) b[20 + i] = n.charCodeAt(i);
+  return b;
+}
 async function boot(fw) {
   // fw = { name, version, bytes } or a library entry
   let bytes = fw.bytes;
@@ -70,7 +81,7 @@ async function boot(fw) {
   const store = await storeLoad(storeSpace(fw));
   await seed(fw, store);
   mediaAsked = false;
-  node = new AudioWorkletNode(ctx, 'vibe-host', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { module, store, fwid: storeSpace(fw), media: mediaList() } });
+  node = new AudioWorkletNode(ctx, 'vibe-host', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { module, store, fwid: storeSpace(fw), media: mediaList(), device: deviceBytes() } });
   node.connect(gain);
   if (micNode) micNode.connect(node);
   node.port.onmessage = (m) => onMessage(m.data);
@@ -106,7 +117,7 @@ function onMessage(d) {
   }
   else if (d.t === 'eddesc') edDescribed(d);         // (the Editor in the browser, 31.10.)
   else if (d.t === 'curveR') { const r = edWait.get(d.id); edWait.delete(d.id); if (r) r(JSON.stringify(d.pts)); }
-  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds); if (d.mixv) ctl.mixValues(d.mixv, d.leds); rear.show(d.rear); }
+  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds, d.padx); if (d.mixv) ctl.mixValues(d.mixv, d.leds); rear.show(d.rear); }
   else if (d.t === 'mixer') ctl.setMixer(d.params);   // (SDK 11) the firmware's mix_* parameters
   else if (d.t === 'log') console.log('[firmware]', d.text);
   else if (d.t === 'midi') ctl.midiOut(d.msgs, ctx);   // (SDK 9) the firmware's MIDI out – to the chosen Web MIDI port
@@ -455,6 +466,7 @@ async function ctlRefresh() {
   } else {
     opt('', 'Controllers ▾');                         // (the browser takes the profile whose "match" is in the port's name)
     opt('__setup', 'Set up a new one …'); opt('__load', 'Load a profile …'); opt('__save', 'Save yours ↓'); opt('__share', 'Share yours …');
+    opt('__lpgrid', (lpGrid ? '✓ ' : '') + 'Launchpad as 8 × 8 pads');   // (3.11.2026: for firmwares made for a grid – the SOUNDMASCHINE)
     ctlSel.value = '';
   }
 }
@@ -538,6 +550,13 @@ ctlSel.addEventListener('change', async () => {
   else if (v === '__load') ctlLoad();
   else if (v === '__folder' && window.vibe_ctl_open) window.vibe_ctl_open('folder');
   else if (v === '__share') ctlShare();
+  else if (v === '__lpgrid') {                       // the firmware starts again: it asks for the device once (vibe_device)
+    lpGrid = !lpGrid; try { localStorage.setItem('vibe.lpgrid', lpGrid ? '1' : '0'); } catch (e) { /* private mode */ }
+    ctl.lpGrid = lpGrid; ctl.lpState.clear(); ctl.lpHeld.clear(); await ctlRefresh();
+    if (current && running) await boot(current);
+    status(lpGrid ? 'Launchpad: its 8 × 8 is the firmware\'s pads now (64) – the top row and the right column stay VIBE buttons; the firmware started again'
+                  : 'Launchpad: the VIBE layout again (4 × 4 pads, the buttons, two octaves of keys) – the firmware started again');
+  }
   else if (v === '__forget') forgetLearned();
   else if (v === '__save') { const l = ctl.exportProfiles(); if (l.length) ctlDownload(l); else status('Nothing learned yet – connect your controller and press "Setup" first'); }
 });

@@ -41,6 +41,14 @@ inst = new WebAssembly.Instance(new WebAssembly.Module(fs.readFileSync(wasmFile)
     if (op === 3) { if (!f) return -1; files.delete(name); if (storeDir) fs.rmSync(storeDir + '/' + name, { force: true }); return 0; }
     if (op === 4) { const b = Buffer.from([...files.keys()].sort().map((k) => k + '\n').join('')); let n = 0; for (const k of [...files.keys()].sort()) { if (n + k.length + 1 > len) break; n += k.length + 1; } new Uint8Array(inst.exports.memory.buffer, dp, n).set(b.subarray(0, n)); return n; }
     if (op === 5) { if (!f) return -1; const off = new DataView(inst.exports.memory.buffer).getUint32(dp, true), n = Math.max(0, Math.min(len, f.length - off)); if (n) new Uint8Array(inst.exports.memory.buffer, dp, n).set(f.subarray(off, off + n)); return n; }
+    if (op === 14) {   // SDK 19/20: script "device": {"pads": 64, "pad_cols": 8, "pad_rows": 8, "name": "…"} – the host's answer (Protokoll 15b); none = the base
+      const d = script.device; if (!d || len < 52) return -1;
+      const b = new Uint8Array(inst.exports.memory.buffer, dp, 52); b.fill(0);
+      b.set([d.keys ?? 25, d.pads ?? 16, d.encoders_extra ?? 0, d.faders ?? 0, d.buttons_extra ?? 0, d.touch ?? 0, d.pad_cols ?? 0, d.pad_rows ?? 0]);
+      const w = d.display_w ?? 480, h = d.display_h ?? 320; b[16] = w & 255; b[17] = w >> 8; b[18] = h & 255; b[19] = h >> 8;
+      const n = String(d.name ?? 'wasmtest'); for (let i = 0; i < Math.min(31, n.length); i++) b[20 + i] = n.charCodeAt(i) & 127;
+      return 1;
+    }
     if (op >= 6) { if (inAudio) mediaInAudio++; return media.store(op, inst.exports.memory.buffer, np, nl, dp, len); }   // SDK 13
     return -1;
   } } });

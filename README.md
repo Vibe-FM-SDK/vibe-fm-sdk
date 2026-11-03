@@ -246,6 +246,8 @@ reach every pad. Nothing changes on the VIBE, in the plugin or in the emulator: 
 - **Buttons: pressed is only `e->down`.** For `VIBE_EV_BUTTON`, `e->value` is always 0 – in the plugin, the emulator and
   on the VIBE alike. Test `if (e->down)`, never `if (e->value > 0)`: such a firmware reacts to no button at all.
   `vibe-check` now presses 18 buttons and fails it, with the fix in its message.
+- **A Launchpad as 8 × 8 pads** (SDK 20): Controllers ▾ in the emulator gives your firmware 64 pads – see
+  [DEVICES.md](DEVICES.md) and `examples/example-grid`.
 - **Endless encoders in profiles:** a control can have its own `"knobs"` (`rel2c` …), see [CONTROLLERS.md](CONTROLLERS.md).
 - **The `.vibe.aot` by hand** (your own build path, your own device – the VIBE FM host on a Raspberry Pi): WAMR **2.2.0**,
   ```
