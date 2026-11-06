@@ -174,6 +174,13 @@ with `vibe_param_set` (compare once per block). Never write controller-specific 
 - SDK 20: the pads are a grid, `pad_cols` × `pad_rows` (up to 128 pads). Use more than pads 0–15 only as an extra
   (a 64-step view, a clip grid), always also reachable on the 4 × 4; show the grid's state on the display too.
 
+## SDK 23: the stage (optional)
+
+- `vibe_stage(buffer, w, h, background, flags)` in init, `vibe_on_stage(fb, w, h)` paints it, `VIBE_EV_STAGE` brings its
+  input (stage pixels). Three rules: never the only way (display + controls do everything, same sound without it); a
+  picture, nothing time-critical; every stage element is one base control and says which. `"stage": {w, h}` in
+  firmware.json. `examples/example-stage`.
+
 ## Patterns that work
 
 - **Voices**: a fixed `static voice V[N]`; note on → a free voice, else the oldest; per sample `vd_saw(phase, dt)` (band-

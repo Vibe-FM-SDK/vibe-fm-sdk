@@ -20,6 +20,10 @@ const REMOTE = location.pathname.startsWith('/emu');
 // plugin mode: this page is the window of the VIBE FM Plugin (VST3 / AU / CLAP, a WebView) – the firmware runs in the
 // plugin; it binds vibe_ev / vibe_library / vibe_load / vibe_current and sends the picture with vibePacket()
 const PLUGIN = typeof window.vibe_ev === 'function';
+// (5.11.2026, Sven) ?jukebox=<name>: the page shows one fixed set – firmware/<id>.jukebox/ (not the seed) under that name, no folders of the
+// user's own, no folder dialog (the media source's flag 'k'; VIBE DJ then leaves SPOTIFY, GLOBAL and ADD FOLDER out) – /dj/
+const JUKEBOX = (new URLSearchParams(location.search).get('jukebox') || '').slice(0, 40);
+if (JUKEBOX) { const st = document.createElement('style'); st.textContent = '.topbar, .legal, #cheat { display: none !important; } body { background: #0B0C0E !important; }'; document.head.append(st); }   // (a stage comes with &stage=1, see stageReady)   // (embedded – also from another site, thefirmwarehub.com/dj: just the device)
 // (the plugin binds its functions once the page has loaded – on macOS it then loads the page again itself; WebView2 on
 //  Windows does not: the page started as the browser emulator, rear panel, Mk1 colours and the emulator's firmwares.
 //  So the page looks for them a few seconds and loads itself again once they are there.)
@@ -36,7 +40,7 @@ const panel = new Panel(dev, (type, id, down, value) => { if (down || type === E
 let actT = 0;
 const ctl = new Controllers((type, id, down, value, midi) => { panel.mirror(type, id, down, value); send(type, id, down, value, midi); }, status, (text) => { if (!ctl.learning || !ctl.target) status(text); const b = $('#tb-midi'); b.classList.add('on'); clearTimeout(actT); b.style.outline = '2px solid #6EE7A8'; actT = setTimeout(() => (b.style.outline = ''), 150); });
 const rear = new Rear($('#rear'), send, (volts) => { if (node && running) node.port.postMessage({ t: 'cvin', volts }); },
-  async () => { await powerOn(); enableInput(); });
+  async () => { if (micNode) { disableInput('Audio input off'); return; } await powerOn(); enableInput(); });
 ctl.onRaw = (d) => rear.midi(d);   // CC64/CC11 = pedal, MIDI clock = CLK IN
 ctl.onVolume = (v) => panel.setVolume(v); ctl.getVolume = () => panel.volume;   // e.g. MPK mini K8
 // (3.11.2026, Protokoll 15) HOME held 1 s or SHIFT + HOME = the firmware library, in every firmware – the host does it, as
@@ -46,6 +50,7 @@ function send(type, id, down, value, midi = 0) {
   if (type === EV.BUTTON && id === BTN.SHIFT) shiftHeld = !!down;
   if (type === EV.BUTTON && id === BTN.HOME && !down) { clearTimeout(homeT); homeT = 0; }
   if (menuEvent(type, id, down, value)) return;   // (3.11.: the library is open – it takes the controls, as on the VIBE)
+  if (!current && !PLUGIN && type === EV.BUTTON && id === BTN.HOME && down) { showMenu(); return; }
   if (type === EV.BUTTON && id === BTN.HOME) {
     clearTimeout(homeT); homeT = 0;
     if (down && shiftHeld) { showMenu(); return; }
@@ -67,7 +72,8 @@ function heardFrame() {
 async function loadLibrary() {
   try { library = await (await fetch('firmware/index.json', { cache: 'no-cache' })).json(); } catch (e) { library = []; }
   const sel = $('#fw');
-  sel.innerHTML = library.map((f) => `<option value="${f.id}">${f.name} ${f.version || ''}</option>`).join('') + '<option value="__file">Load your own .wasm …</option>';
+  sel.innerHTML = '<option value="" disabled hidden>Choose a firmware</option>' + library.map((f) => `<option value="${f.id}">${f.name} ${f.version || ''}</option>`).join('') + '<option value="__file">Load your own .wasm …</option>';
+  if (!current) sel.value = '';
 }
 // (3.11.2026) a Launchpad as an 8 x 8 grid: the firmware gets 64 pads (vibe_device(), SDK 20) – Controllers ▾, remembered;
 // the on-screen pads are pads 0-15 then (the grid's top two rows), the Launchpad's top row and right column stay VIBE buttons
@@ -88,14 +94,19 @@ async function boot(fw) {
   let module;
   try { module = await WebAssembly.compile(bytes); } catch (e) { status('Not a valid firmware: ' + e.message, true); return; }
   if (node) { node.port.onmessage = null; node.disconnect(); node = null; }
+  const sameFw = current && fw && current === fw;   // (a restart of the same firmware keeps its input)
   running = false; current = fw; $('#fw').value = fw.id || '__file';
   panel.setLatch(fw.latch !== false);
+  // (3.11.2026, Sven: the keys had no captions in the browser – "as in the VST") the firmware's captions printed on the
+  // coloured keys and F1–F6, every firmware, as in the plugin
+  if (!PLUGIN) { panel.printLabels = true; panel.labelKey = null; }
   const store = await storeLoad(storeSpace(fw));
   await seed(fw, store);
   mediaAsked = false;
   node = new AudioWorkletNode(ctx, 'vibe-host', { numberOfInputs: 1, numberOfOutputs: 1, outputChannelCount: [2], processorOptions: { module, store, fwid: storeSpace(fw), media: mediaList(), device: deviceBytes() } });
   node.connect(gain);
-  if (micNode) micNode.connect(node);
+  if (micNode && sameFw) inGain.connect(node);
+  else if (micNode) disableInput('Audio input off – a firmware that needs it switches it on again');   // (3.11.: no microphone left open into the next firmware)
   node.port.onmessage = (m) => onMessage(m.data);
   node.port.postMessage({ t: 'latency', frames: Math.round(((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * ctx.sampleRate) });   // Protokoll 5
   hideMenu(); loadCheat(fw);
@@ -108,12 +119,26 @@ async function seed(fw, store) {
   if (!fw || !fw.id) return;
   const key = 'vibe.seeded.' + fw.id;
   let done = null; try { done = localStorage.getItem(key); } catch (e) { return; }
-  let idx; try { const r = await fetch('firmware/' + fw.id + '.seed/index.json', { cache: 'no-cache' }); if (!r.ok) return; idx = await r.json(); } catch (e) { return; }
+  let idx; try { const r = await fetch('firmware/' + fw.id + (JUKEBOX ? '.jukebox' : '.seed') + '/index.json', { cache: 'no-cache' }); if (!r.ok) return; idx = await r.json(); } catch (e) { return; }
   const list = Array.isArray(idx) ? idx : idx.files || [], ver = String(Array.isArray(idx) ? 1 : idx.version || 1);
+  // (5.11.2026, Sven: "nichts vorladen") a seed marked "media": its songs are a media source read from the server only as
+  // they play (HTTP ranges, 64 KB blocks) – the library lists them at once, nothing is downloaded before; the demo files an
+  // older seed had copied into the firmware's own storage go (ours, not the player's: they would show twice)
+  mediaSrc = mediaSrc.filter((s) => !s.http || s.fw === fw.id);
+  if (idx.media) {
+    const key = JUKEBOX ? JUKEBOX.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '') || 'jukebox' : 'demos-' + fw.id, base = 'firmware/' + fw.id + (JUKEBOX ? '.jukebox/' : '.seed/'), sizes = idx.sizes || {};
+    const files = list.filter((n) => /\.(mp3|wav)$/i.test(n)).map((n) => ({ name: n.split('/').pop(), path: n, size: sizes[n] || 0 }));
+    mediaSrc = mediaSrc.filter((s) => s.key !== key);
+    mediaSrc.unshift({ key, label: JUKEBOX || idx.label || 'VIBE FM Demos', write: false, fixed: !!JUKEBOX, ok: true, dropped: true, http: base, fw: fw.id, files, ver });
+    if (done !== ver) { for (const n of list) if (store[n]) { delete store[n]; await storePut(storeSpace(fw), n, null); } }
+    try { localStorage.setItem('vibe.seeded.' + fw.id, ver); } catch (e) { /* storage off */ }
+    return;
+  }
   if (done === ver) return;
   if (!done && Object.keys(store).some((n) => /\.(mp3|wav)$/i.test(n) && !list.includes(n))) { try { localStorage.setItem(key, ver); } catch (e) { /* storage off */ } return; }   /* (music of its own and never seeded: leave it) */
-  status('Loading the demo music …');
+  status(fw.id === 'player' ? 'Loading the demo music …' : 'Loading the demo …');
   for (const name of list) {
+    if (idx.keep && store[name]) continue;   // (4.11.: "keep" – a file the player made already stays theirs: OberVave's demo pattern never over their own)
     try {
       const r = await fetch('firmware/' + fw.id + '.seed/' + name); if (!r.ok) continue;
       const data = await r.arrayBuffer(); store[name] = data; await storePut(storeSpace(fw), name, data.slice(0));
@@ -124,20 +149,22 @@ async function seed(fw, store) {
 function onMessage(d) {
   if (d.t === 'ready') {
     ctl.setMixer([]); ctl.fwAreas = d.areas || 0;
-    running = true; ctl.sdk = d.sdk; status((current.name || 'Firmware') + ' running · VIBE SDK ' + d.sdk);
+    running = true;
+    stageReady(d.stage || null);                      // SDK 23: has this firmware a stage? (after running: it tells the worklet to draw it) ctl.sdk = d.sdk; status((current.name || 'Firmware') + ' running');   // (d.sdk = the firmware's interface level 1–8, not the SDK release – no longer shown, 4.11.)
     node.port.postMessage({ t: 'cvin', volts: +rear.cvKnob.value });
   }
   else if (d.t === 'eddesc') edDescribed(d);         // (the Editor in the browser, 31.10.)
   else if (d.t === 'curveR') { const r = edWait.get(d.id); edWait.delete(d.id); if (r) r(JSON.stringify(d.pts)); }
-  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds, d.padx); if (d.mixv) ctl.mixValues(d.mixv, d.leds); rear.show(d.rear); }
+  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds, d.padx); if (d.mixv) ctl.mixValues(d.mixv, d.leds); rear.show(d.rear); if (d.stage) stageFrame(new Uint16Array(d.stage)); }
   else if (d.t === 'mixer') ctl.setMixer(d.params);   // (SDK 11) the firmware's mix_* parameters
   else if (d.t === 'log') console.log('[firmware]', d.text);
-  else if (d.t === 'midi') ctl.midiOut(d.msgs, ctx);   // (SDK 9) the firmware's MIDI out – to the chosen Web MIDI port
+  else if (d.t === 'midi') { ctl.midiOut(d.msgs, ctx); if (editor && editor.pageOn) editor.toPage({ midi: d.msgs.map((m) => m.slice(1)) }); }   // (SDK 9) the firmware's MIDI out – to the chosen Web MIDI port; (5.11.) and to its own editor page
   else if (d.t === 'store') { const sp = storeSpace(current); storeQ = storeQ.then(() => storePut(sp, d.name, d.data)); }
-  else if (d.t === 'request') { if (d.what === 1) showMenu(); if (d.what === 2) enableInput(); if (d.what === 3) { const fw = current; storeQ.then(() => boot(fw)); } }   // 3: restart, once its writes / deletes are stored
+  else if (d.t === 'request') { if (d.what === 1) showMenu(); if (d.what === 2) inputAsked(); if (d.what === 3) { const fw = current; storeQ.then(() => boot(fw)); } }   // 3: restart, once its writes / deletes are stored
   else if (d.t === 'mreq') mediaRead(d);   // SDK 13: the worklet asks for a list, a size, a block
   else if (d.t === 'mopen' || d.t === 'mwrite' || d.t === 'mclose') mediaWrite(d);
   else if (d.t === 'masked') { mediaAsked = true; $('#tb-media').classList.add('on'); }
+  else if (d.t === 'madd') mediaAdd();   // SDK 22: the firmware's "+ ADD FOLDER"
   else if (d.t === 'crash') { running = false; status('Firmware stopped: ' + d.error, true); showMenu('The firmware crashed – not the device. Choose a firmware:'); }
 }
 
@@ -148,7 +175,7 @@ function onMessage(d) {
 // permission again on the next visit. The worklet keeps the cache; here the reading and writing happen.
 const MBLK = 65536;
 let mediaSrc = [], mediaAsked = false;
-const mediaList = () => mediaSrc.filter((s) => s.ok).map((s) => ({ key: s.key, label: s.label, write: !!s.write }));
+const mediaList = () => mediaSrc.filter((s) => s.ok && (!JUKEBOX || s.fixed)).map((s) => ({ key: s.key, label: s.label, write: !!s.write, fixed: !!s.fixed }));
 const mediaPush = () => { if (node) node.port.postMessage({ t: 'msrc', list: mediaList() }); const b = $('#tb-media'); if (b) b.title = mediaTitle(); };
 const mediaTitle = () => 'Media: folders the firmware may read (samples, songs) – SDK 13. ' + (mediaSrc.length ? 'Now: ' + mediaSrc.map((s) => s.label + (s.write ? ' (writes here)' : '') + (s.ok ? '' : ' – click to allow again')).join(', ') + '. Shift+click: forget them all.' : 'Click to pick one, or drop a folder onto the device.');
 function mediaKey(name) {   // a stable key from the folder's name: dir-<name>, numbered if taken
@@ -162,7 +189,7 @@ async function mediaSave() {
   try { const d = await mdb(), tx = d.transaction('dirs', 'readwrite'), os = tx.objectStore('dirs'); os.clear(); for (const s of mediaSrc) if (s.h && s.h.kind === 'directory' && !s.dropped) os.put({ key: s.key, label: s.label, write: !!s.write, h: s.h }, s.key); await new Promise((res) => { tx.oncomplete = res; tx.onerror = res; }); } catch (e) { /* storage off */ }
 }
 async function mediaRestore() {
-  if (PLUGIN || REMOTE) return;
+  if (PLUGIN || REMOTE || JUKEBOX) return;
   try {
     const d = await mdb(), all = await new Promise((res, rej) => { const r = d.transaction('dirs').objectStore('dirs').getAll(); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
     for (const x of all) { const q = x.h.queryPermission ? await x.h.queryPermission({ mode: x.write ? 'readwrite' : 'read' }) : 'denied'; mediaSrc.push({ ...x, ok: q === 'granted' }); }
@@ -177,11 +204,29 @@ async function mediaPick(ev) {
     mediaPush(); status('Media: ' + mediaSrc.filter((s) => s.ok).map((s) => s.label).join(', ')); return;
   }
   if (!window.showDirectoryPicker) { status('This browser cannot open folders – drop a folder onto the device instead (while a firmware that uses media runs)', true); return; }
-  let h; try { h = await window.showDirectoryPicker({ id: 'vibe-media', mode: 'readwrite' }); } catch (e) { return; }
-  const write = !mediaSrc.some((s) => s.write && s.ok) && (await h.queryPermission({ mode: 'readwrite' })) === 'granted';
+  // (5.11.2026, Sven: "nix schreiben") ev.read: the firmware's ADD FOLDER – read only, the browser asks only to view files
+  let h; try { h = await window.showDirectoryPicker({ id: 'vibe-media', mode: ev.read ? 'read' : 'readwrite' }); } catch (e) { return; }
+  const write = !ev.read && !mediaSrc.some((s) => s.write && s.ok) && (await h.queryPermission({ mode: 'readwrite' })) === 'granted';
   mediaSrc.push({ key: mediaKey(h.name), label: h.name, write, h, ok: true });
   await mediaSave(); mediaPush(); $('#tb-media').classList.add('on');
   status(`Media: ${h.name}` + (write ? ' (the firmware writes its own files into "VIBE FM" there)' : ''));
+}
+// SDK 22 (5.11.2026, Sven: "Musik direkt auswählen"): the firmware's own "+ ADD FOLDER" – the folder dialog at once
+// when a click or a key on the page just came (the browser lets it open only then); from a MIDI controller a button on
+// the page instead, one click away
+function mediaAdd() {
+  if (navigator.userActivation && navigator.userActivation.isActive) { mediaPick({ shiftKey: false, read: true }); return; }
+  let b = $('#media-add');
+  if (!b) {
+    b = document.createElement('div'); b.id = 'media-add';
+    b.innerHTML = '<span>Add a folder with music (a disk, a USB stick)</span><button type="button" class="ma-go">Choose folder</button><button type="button" class="ma-x" aria-label="Close">\u00D7</button>';
+    b.style.cssText = 'position:fixed;left:50%;top:calc(env(safe-area-inset-top,0px) + 72px);transform:translateX(-50%);z-index:60;display:flex;gap:12px;align-items:center;padding:10px 14px;border-radius:10px;background:#1d1f24;color:#eee;box-shadow:0 8px 30px rgba(0,0,0,.5);font:14px system-ui,sans-serif';
+    for (const x of b.querySelectorAll('button')) x.style.cssText = 'border:0;border-radius:7px;padding:7px 12px;font:600 13px system-ui,sans-serif;cursor:pointer;' + (x.classList.contains('ma-go') ? 'background:#ff5a1f;color:#fff' : 'background:transparent;color:#aaa');
+    b.querySelector('.ma-go').addEventListener('click', () => { b.hidden = true; mediaPick({ shiftKey: false, read: true }); });
+    b.querySelector('.ma-x').addEventListener('click', () => { b.hidden = true; });
+    document.body.appendChild(b);
+  }
+  b.hidden = false; clearTimeout(mediaAdd.t); mediaAdd.t = setTimeout(() => { b.hidden = true; }, 15000);
 }
 function mediaDrop(entry, handle) {   // a folder dropped: read-only
   const h = handle || entry; if (!h) return;
@@ -202,10 +247,38 @@ const fsx = {
 };
 async function mediaDir(s, parts, create) { let d = s.h; for (const p of parts) d = d.getDirectoryHandle ? await d.getDirectoryHandle(p, { create: !!create }) : await fsx.child(d, p, true); return d; }
 const mFiles = new Map();   // path -> File (a few seconds: one getFile for many blocks)
+// (6.11.2026, Sven) the Jukebox counts plays for everyone: once this page has fetched half of a track's blocks (a deck
+// reads 1 MB ahead on load – half a track means it played), the page around us (/dj on the hub) is told once per track and
+// page; it tells the hub. Only inside the Jukebox, only in a frame; nothing is sent from here.
+const playedBlk = new Map();
+function played(f, blk) {
+  if (!JUKEBOX || window.parent === window || !f.size) return;
+  let p = playedBlk.get(f.path); if (!p) { p = { got: new Set(), told: false }; playedBlk.set(f.path, p); }
+  if (p.told) return;
+  p.got.add(blk);
+  if (p.got.size * MBLK >= f.size / 2) { p.told = true; try { window.parent.postMessage({ vibeJukebox: 'play', file: f.path }, '*'); } catch (e) {} }
+}
 async function mediaRead(d) {
   const reply = (v, miss, size, tr) => { if (node) node.port.postMessage({ t: 'mres', kind: d.kind, path: d.path, blk: d.blk, v, miss, size }, tr || []); };
   const [key, ...parts] = d.path.split('/'), s = mediaSrc.find((x) => x.key === key && x.ok);
   if (!s) return reply(null, true);
+  if (s.http) {                                       // (5.11.) a server's files: listed from its seed, read in HTTP ranges
+    try {
+      const leaf = parts.join('/'), f = s.files.find((e) => e.name === leaf);
+      if (d.kind === 'l') return reply(parts.length && parts[0] ? '' : s.files.map((e) => `f\t${e.size}\t${e.name}\n`).join(''));
+      if (d.kind === 's') return reply(f ? [1, f.size, 0] : [2, 0, 0]);
+      if (!f) return reply(null, true);
+      const a0 = d.blk * MBLK, a1 = Math.min(f.size || Infinity, a0 + MBLK) - 1;
+      if (f.size && a0 >= f.size) { const e = new ArrayBuffer(0); return reply(e, false, f.size, [e]); }   // (past the end: empty, as a File's slice – a server says 416)
+      // (?v=: the seed's version – 5.11.: the songs changed, the browser (Cloudflare: 4 h) still had pieces of the old ones under the same name)
+      const r = await fetch(s.http + f.path.split('/').map(encodeURIComponent).join('/') + '?v=' + encodeURIComponent(s.ver || ''), { headers: { Range: `bytes=${a0}-${a1}` } });
+      if (!r.ok) return reply(null, true);
+      let buf = await r.arrayBuffer();
+      if (r.status === 200) buf = buf.slice(a0, a1 + 1);   // (a server without ranges: the whole file, the block cut out)
+      played(f, d.blk);
+      return reply(buf, false, f.size, [buf]);
+    } catch (e) { return reply(null, true); }
+  }
   try {
     if (d.kind === 'l') {
       const dir = await mediaDir(s, parts), items = (await fsx.list(dir)).filter((e) => !e.name.startsWith('.') && !e.name.includes('\\'));
@@ -246,7 +319,7 @@ function mediaWrite(d) {
 // ---------------------------------------------------------------- storage (SDK 3) ---------------------------------
 // One IndexedDB database for all firmwares; a file's key is "<firmware>/<name>". The worklet gets the firmware's files
 // before it starts and sends every write back here.
-const storeSpace = (fw) => (fw && fw.id) || 'eigene-' + ((fw && fw.name) || 'firmware').toLowerCase().replace(/[^a-z0-9._-]/g, '');
+const storeSpace = (fw) => (JUKEBOX ? 'jukebox-' : '') + ((fw && fw.id) || 'eigene-' + ((fw && fw.name) || 'firmware').toLowerCase().replace(/[^a-z0-9._-]/g, ''));   // (the Jukebox: a storage of its own – no music of the visitor's Web Player)
 let dbp = null, storeQ = Promise.resolve();   // storeQ: the writes in order (a restart waits for them)
 function db() {
   if (!dbp) dbp = new Promise((res, rej) => { const r = indexedDB.open('vibe-store', 1); r.onupgradeneeded = () => r.result.createObjectStore('files'); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); });
@@ -291,7 +364,7 @@ function showMenu(note) {
     MENU.cv = document.createElement('canvas'); MENU.cv.width = 960; MENU.cv.height = 640; MENU.cv.className = 'menucv';
     MENU.cv.addEventListener('click', (e) => {   // (the mouse: a tile starts it, a soft-key label does what it says)
       const r = MENU.cv.getBoundingClientRect(), x = (e.clientX - r.left) * 480 / r.width, y = (e.clientY - r.top) * 320 / r.height;
-      if (y >= 282) { if (x < 80) menuStart(); else if (x >= 400) hideMenu(); return; }
+      if (y >= 282) { if (x < 80) menuStart(); else if (x >= 400 && current) hideMenu(); return; }
       for (let k = 0; k < 6; k++) {
         const i = MENU.top * 3 + k, tx = 8 + (k % 3) * 158, ty = 40 + Math.floor(k / 3) * 110;
         if (i < MENU.items.length && x >= tx - 3 && x < tx + MENU_ICON_W + 3 && y >= ty - 3 && y < ty + MENU_ICON_H + 24) { MENU.sel = i; menuStart(); return; }
@@ -324,7 +397,7 @@ function menuEvent(type, id, down, value) {
   if (type === EV.PAD && down && id < n) { MENU.sel = id; menuStart(); return true; }
   if (type !== EV.BUTTON) return type === EV.PAD || type === EV.KEY;   // (keys and pads: not into the firmware underneath either)
   if (!down) return true;
-  if (id === BTN.HOME || id === BTN.RETURN || id === BTN.F6) hideMenu();
+  if (id === BTN.HOME || id === BTN.RETURN || id === BTN.F6) { if (current) hideMenu(); }   // (nothing runs yet: the menu stays)
   else if (id === BTN.RIGHT) MENU.sel = Math.min(n - 1, MENU.sel + 1);
   else if (id === BTN.LEFT) MENU.sel = Math.max(0, MENU.sel - 1);
   else if (id === BTN.OCT_UP) MENU.sel = Math.min(n - 1, MENU.sel + 3);
@@ -365,9 +438,90 @@ function menuDraw() {
   if (MENU.note) text(fit(MENU.note, F(14, 500), 464), 8, 262, F(14, 500), '#FF8A4A');
   else if (it) text(fit(it.desc, F(14, 500), 464), 8, 262, F(14, 500), '#8A93A6');
   c.fillStyle = '#0E1220'; c.fillRect(0, 282, 480, 38);
-  [['START', 0], ['BACK', 5]].forEach(([t, i]) => { const x = 40 + i * 80; round(x - 37, 286, 74, 30, 5, i === 0 ? '#FF6A1A' : '#24314A'); text(t, x, 293, F(15), i === 0 ? '#111214' : '#E6EAF2', 'center'); });
+  (current ? [['START', 0], ['BACK', 5]] : [['START', 0]]).forEach(([t, i]) => { const x = 40 + i * 80; round(x - 37, 286, 74, 30, 5, i === 0 ? '#FF6A1A' : '#24314A'); text(t, x, 293, F(15), i === 0 ? '#111214' : '#E6EAF2', 'center'); });
 }
-$('#fw').addEventListener('change', async (e) => { if (PLUGIN) { if (e.target.value === '__add') { $('#fw').value = current ? current.id : ''; pluginPick(); return; } pluginLoad(e.target.value); return; } if (e.target.value === '__file') { $('#fwfile').click(); return; } await powerOn(); boot(library.find((f) => f.id === e.target.value)); });
+$('#fw').addEventListener('change', async (e) => { if (PLUGIN) { if (e.target.value === '__add') { $('#fw').value = current ? current.id : ''; pluginPick(); return; } pluginLoad(e.target.value); return; } if (e.target.value === '__file') { $('#fwfile').click(); return; }
+  // (3.11.: the first click switched the device on, which loads the list again and empties the choice – it booted nothing)
+  const id = e.target.value; powerWant = id; await powerOn(); if (!current || current.id !== id) boot(library.find((f) => f.id === id)); });
+// (3.11.2026, Sven: "das Dropdown soll super geil werden") the firmware picker: the native <select id="fw"> stays underneath
+// (its options, its value, its change – the browser and the plugin alike), shown as a button with the firmware's picture
+// and a list of tiles; a firmware without a picture gets its initials on a colour of its own
+const fwSel = $('#fw'), fwPick = document.createElement('div'), fwBtn = document.createElement('button'), fwPop = document.createElement('div');
+fwPick.className = 'fwpick'; fwBtn.type = 'button'; fwBtn.className = 'fwbtn'; fwBtn.setAttribute('aria-haspopup', 'listbox');
+fwPop.className = 'fwpop'; fwPop.hidden = true; fwPop.setAttribute('role', 'listbox');
+fwPick.append(fwBtn); document.body.appendChild(fwPop); fwSel.after(fwPick); fwSel.classList.add('fwsel-native');
+const fwOf = (id) => library.find((f) => f.id === id) || (current && current.id === id ? current : null);
+function fwThumb(id, name, big) {
+  const ini = document.createElement('span'); ini.className = 'fwini' + (big ? ' big' : '');
+  const words = String(name || id || '?').replace(/[^A-Za-z0-9 ]/g, ' ').trim().split(/\s+/);
+  ini.textContent = (words.length > 1 ? words[0][0] + words[1][0] : words[0].slice(0, 2)).toUpperCase();
+  let hsh = 0; for (const c of String(id || name)) hsh = (hsh * 31 + c.charCodeAt(0)) >>> 0;
+  ini.style.background = `linear-gradient(135deg, hsl(${hsh % 360} 55% 32%), hsl(${(hsh >> 9) % 360} 60% 18%))`;
+  if (!id || id[0] === '_') return ini;
+  const img = new Image(); img.className = 'fwimg' + (big ? ' big' : ''); img.alt = ''; img.decoding = 'async';
+  img.onerror = () => img.replaceWith(ini); img.src = 'firmware/icons/' + id + '.webp';
+  return img;
+}
+function fwBtnRender() {
+  const o = fwSel.selectedOptions[0], id = fwSel.value, f = fwOf(id);
+  fwBtn.replaceChildren();
+  const label = document.createElement('span'); label.className = 'fwlabel';
+  if (!id || !o || o.disabled) { label.innerHTML = '<b>Choose a firmware</b>'; fwBtn.append(fwThumb('', '…'), label); }
+  else { label.innerHTML = `<b></b><small></small>`; label.querySelector('b').textContent = f ? f.name : o.textContent; label.querySelector('small').textContent = f ? (f.version || '') : ''; fwBtn.append(fwThumb(id, f ? f.name : o.textContent), label); }
+  const car = document.createElement('i'); car.className = 'fwcaret'; car.textContent = '▾'; fwBtn.append(car);
+  fwBtn.title = f && f.description ? f.description : 'Choose a firmware';
+}
+function fwPopRender() {
+  fwPop.replaceChildren();
+  for (const o of fwSel.options) {
+    if (o.disabled && !o.value) continue;
+    const f = fwOf(o.value), own = !f && /^__/.test(o.value);
+    const row = document.createElement('button'); row.type = 'button'; row.className = 'fwrow' + (own ? ' own' : '') + (o.value === fwSel.value ? ' cur' : ''); row.setAttribute('role', 'option');
+    const txt = document.createElement('span'); txt.className = 'fwtxt';
+    const b = document.createElement('b'), v = document.createElement('em'), s = document.createElement('small');
+    b.textContent = f ? f.name : o.textContent.replace(/…$/, '').trim(); v.textContent = f && f.version ? f.version : '';
+    s.textContent = f ? [f.author, (f.description || '').replace(/\s*[–-]\s*(native VIBE firmware|FM-1 firmware, converted.*)$/i, '')].filter(Boolean).join(' · ')
+      : own ? (PLUGIN ? 'the .zip from thefirmwarehub.com – or drop it onto the window' : 'a .wasm you built – or drop it onto the device') : '';
+    b.append(v);
+    // (5.11.2026, Sven: native firmwares stand out) built for VIBE FM with its SDK – not an FM-1 firmware converted (those carry
+    // "protocol" and say so in their description)
+    if (f && !f.protocol && !/FM-1 firmware, converted/i.test(f.description || '')) b.append(Object.assign(document.createElement('span'), { className: 'fwnat', textContent: 'NATIVE',
+      style: 'display:inline-block;margin-left:8px;padding:1px 7px;border-radius:999px;background:#FF60BE;color:#1a0912;font:800 10px/1.5 var(--sans);letter-spacing:.08em;vertical-align:2px' }));
+    txt.append(b, s);
+    row.append(own ? Object.assign(document.createElement('span'), { className: 'fwini plus', textContent: '+' }) : fwThumb(o.value, f ? f.name : o.textContent, true), txt);
+    row.addEventListener('click', () => { fwClose(); fwSel.value = o.value; fwSel.dispatchEvent(new Event('change')); });
+    fwPop.appendChild(row);
+  }
+}
+function fwOpen() {
+  fwPopRender(); fwPop.hidden = false; fwBtn.classList.add('open');
+  const vw = Math.min(innerWidth, document.documentElement.clientWidth || innerWidth, (window.visualViewport && visualViewport.width) || innerWidth), vh = (window.visualViewport && visualViewport.height) || innerHeight;
+  // (5.11., Sven: a mega menu over the whole width) below the top bar, edge to edge with the page's gutter; as many columns
+  // as fit (CSS: 300 px at least) – one on a phone. (A phone: the visible width, not the page's.)
+  const tb = document.querySelector('.topbar'), r = (tb || fwBtn).getBoundingClientRect(), w = vw - 32;
+  fwPop.style.width = w + 'px'; fwPop.style.left = '16px'; fwPop.style.top = r.bottom + 6 + 'px';
+  fwPop.style.maxHeight = Math.max(200, vh - r.bottom - 20) + 'px';
+  const cur = fwPop.querySelector('.cur') || fwPop.querySelector('.fwrow'); if (cur) cur.focus();
+}
+function fwClose() { fwPop.hidden = true; fwBtn.classList.remove('open'); }
+fwBtn.addEventListener('click', () => (fwPop.hidden ? fwOpen() : fwClose()));
+document.addEventListener('pointerdown', (e) => { if (!fwPop.hidden && !fwPop.contains(e.target) && !fwBtn.contains(e.target)) fwClose(); }, true);
+document.addEventListener('keydown', (e) => {   // (open: the keys are the list's – not the device's)
+  if (fwPop.hidden) return;
+  const rows = [...fwPop.querySelectorAll('.fwrow')], i = rows.indexOf(document.activeElement);
+  if (e.key === 'Escape') { fwClose(); fwBtn.focus(); }
+  else if (e.key === 'ArrowDown' || e.key === 'ArrowRight') rows[Math.min(rows.length - 1, i + 1)].focus();
+  else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') rows[Math.max(0, i - 1)].focus();
+  else if (e.key !== 'Enter' && e.key !== ' ' && e.key !== 'Tab') return;
+  if (e.key !== 'Enter' && e.key !== ' ') { e.preventDefault(); } e.stopPropagation();
+}, true);
+addEventListener('resize', fwClose);
+{ // every way the value changes (boot, the plugin, the library) shows on the button
+  const d = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value');
+  Object.defineProperty(fwSel, 'value', { get() { return d.get.call(this); }, set(v) { d.set.call(this, v); fwBtnRender(); } });
+  new MutationObserver(fwBtnRender).observe(fwSel, { childList: true });
+  fwSel.addEventListener('change', fwBtnRender); fwBtnRender();
+}
 $('#fwfile').addEventListener('change', async (e) => { const f = e.target.files[0]; if (!f) return; await powerOn(); boot({ name: f.name.replace(/\.wasm$/, ''), bytes: await f.arrayBuffer() }); e.target.value = ''; });
 wrap.addEventListener('dragover', (e) => { e.preventDefault(); if (!PLUGIN) wrap.classList.add('drop'); });
 wrap.addEventListener('dragleave', () => wrap.classList.remove('drop'));
@@ -459,23 +613,27 @@ function powerOn() {
     await loadLibrary();
     // MIDI allowed before? then connect right away (no click on MIDI needed)
     try { const p = await navigator.permissions.query({ name: 'midi', sysex: true }); if (p.state === 'granted') ctl.connect(); } catch (e) { /* no permissions API */ }
-    const want = new URLSearchParams(location.search).get('fw');
-    if (holdHome) showMenu('HOME held at power-on: choose a firmware');
-    else boot(library.find((f) => f.id === want) || library[0]);
+    // (3.11.2026, Sven: the Web Player starts empty) the main menu, as a VIBE without a firmware chosen – unless a link names
+    // one (?fw=x0x) or the demo button asked for GROOVE
+    const want = powerWant || new URLSearchParams(location.search).get('fw');
+    const fw = want && (library.find((f) => f.id === want) || (powerWant === 'groove' ? library.find((f) => f.id === 'obervave') : null));   // (the public player has no GROOVE: the demo is OberVave's)
+    if (fw && !holdHome) boot(fw); else showMenu(holdHome ? 'HOME held at power-on: choose a firmware' : '');
   })();
   return powering;
 }
-let holdHome = false;
+let holdHome = false, powerWant = '';
 powerBtn.addEventListener('click', () => powerOn());
 // "Demo hören": switch on and press PLAY as soon as the firmware runs (GROOVE has a demo pattern)
-$('#power-demo').addEventListener('click', async () => {
-  await powerOn();
+if ($('#power-demo')) $('#power-demo').addEventListener('click', async () => {   // (4.11.: the button is gone from the page – Sven; kept for a page that has one)
+  powerWant = 'groove'; await powerOn();
   for (let i = 0; i < 60 && !running; i++) await new Promise((r) => setTimeout(r, 50));
-  setTimeout(() => { send(EV.BUTTON, BTN.PLAY, 1, 0); send(EV.BUTTON, BTN.PLAY, 0, 0); }, 1900);   // after the boot animation
+  // after the boot animation; a STOP first: OberVave's first key only ends its start screen (4.11.: the demo was silent)
+  setTimeout(() => { send(EV.BUTTON, BTN.STOP, 1, 0); send(EV.BUTTON, BTN.STOP, 0, 0); }, 1700);
+  setTimeout(() => { send(EV.BUTTON, BTN.PLAY, 1, 0); send(EV.BUTTON, BTN.PLAY, 0, 0); }, 2100);
 });
-// rear panel: shown on big screens, folded away on phones; the choice is remembered
+// rear panel: folded away until it is clicked (5.11., Sven – was: open on big screens); the choice is remembered
 const rearEl = $('#rear');
-let rearOn = matchMedia('(min-width: 1000px) and (min-height: 700px)').matches;
+let rearOn = false;
 try { const v = localStorage.getItem('vibe.rear'); if (v !== null) rearOn = v === '1'; } catch (e) { /* private mode */ }
 function showRear(on) { rearOn = on; rearEl.hidden = !on; $('#tb-rear').classList.toggle('on', on); fit(); }
 // cheat sheet: every firmware may bring firmware/<id>.cheat.html (built from firmware/<name>/cheatsheet.html), shown
@@ -486,7 +644,13 @@ try { const v = localStorage.getItem('vibe.cheat'); if (v !== null) cheatOn = v 
 async function loadCheat(fw) {
   let html = '';
   if (fw && fw.cheat) { try { const r = await fetch(fw.cheat, { cache: 'no-cache' }); if (r.ok) html = await r.text(); } catch (e) { /* offline */ } }
-  cheatEl.innerHTML = html || `<h2>${(fw && fw.name) || 'Firmware'}</h2><p class="none">There is no cheat sheet for this firmware yet. The general controls are under <b>Help</b>.</p>`;
+  // (5.11., Sven) no cheat sheet of its own: the box tells what the firmware menu tells – name, version, author, licence,
+  // what it is – and the controls everyone has
+  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  cheatEl.innerHTML = html || `<h2>${esc((fw && fw.name) || 'Firmware')}${fw && fw.version ? ` <small>${esc(fw.version)}</small>` : ''}</h2>`
+    + (fw && (fw.author || fw.license) ? `<p class="dim">${esc([fw.author, fw.license].filter(Boolean).join(' · '))}</p>` : '')
+    + (fw && fw.description ? `<p>${esc(fw.description)}</p>` : '')
+    + `<h3>Controls</h3><p><b>HOME</b> shows what every control does right now · held 1 s: the firmware library. The captions on the keys say what they do. More under <b>Help</b>.</p>`;
 }
 function showCheat(on) {
   cheatOn = on; cheatEl.hidden = !on; cheatEl.style.top = $('.topbar').offsetHeight + 8 + 'px';
@@ -494,19 +658,79 @@ function showCheat(on) {
 }
 $('#tb-cheat').addEventListener('click', () => { showCheat(!cheatOn); try { localStorage.setItem('vibe.cheat', cheatOn ? '1' : '0'); } catch (e) { /* private mode */ } });
 $('#tb-rear').addEventListener('click', () => { showRear(!rearOn); try { localStorage.setItem('vibe.rear', rearOn ? '1' : '0'); } catch (e) { /* private mode */ } });
+// (3.11.2026, Sven: feedback with the audio input) the input is a switch (on / off, off = the microphone closed), its device
+// chosen and remembered (In: … next to the button), a built-in microphone warned about and faded in over 3 s (the laptop's
+// mic hears its own speakers: VALVE, VOX, ZVAMPLER's MONITOR howl at once), and off when another firmware starts
+let inDev = ''; try { inDev = localStorage.getItem('vibe.indev') || ''; } catch (e) { /* private mode */ }
+let inGain = null;
+const BUILTIN = /built-?in|internal|integrated|digital mic|eingebaut|intern|macbook|sof-hda|mic(rophone)? array/i;
+// a firmware asks for the input (VOX and VALVE at their start): opened at once only for a chosen interface – the built-in
+// microphone (or one not known yet) waits for a click on Audio input, after a word about headphones (Sven, 3.11.: VOX howled at once)
+async function inputAsked() {
+  if (micNode) return;
+  let lab = '';
+  try {
+    const ds = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput');
+    const d = ds.find((x) => inDev && x.deviceId === inDev) || ds.find((x) => x.deviceId === 'default') || ds[0];
+    lab = (d && d.label) || '';
+  } catch (e) { /* none */ }
+  if (!lab || BUILTIN.test(lab)) {
+    $('#tb-in').classList.add('ask');
+    status(((current && current.name) || 'The firmware') + ' wants the audio input: headphones on (the built-in microphone hears the speakers), then press Audio input', true);
+    return;
+  }
+  enableInput();
+}
+let inOpening = null;   // (3.11.: two asks at once – the firmware's and a click – opened the microphone twice; the second
+                        // stream stayed wired to the firmware and 'off' never reached it: it howled on)
 async function enableInput() {
   if (micNode) return;
+  if (inOpening) return inOpening;
+  inOpening = openInput(); try { await inOpening; } finally { inOpening = null; }
+}
+async function openInput() {
+  $('#tb-in').classList.remove('ask');
   try {
     // two channels if the interface has them: channel 1 = IN 1, channel 2 = IN 2
-    micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: { ideal: 2 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
-    micNode = ctx.createMediaStreamSource(micStream); if (node) micNode.connect(node);
+    const want = { channelCount: { ideal: 2 }, echoCancellation: false, noiseSuppression: false, autoGainControl: false };
+    if (inDev) want.deviceId = { exact: inDev };
+    try { micStream = await navigator.mediaDevices.getUserMedia({ audio: want }); }
+    catch (e) { if (!inDev) throw e; delete want.deviceId; inDev = ''; micStream = await navigator.mediaDevices.getUserMedia({ audio: want }); }   // (the chosen one is gone: the default)
+    micNode = ctx.createMediaStreamSource(micStream);
+    inGain = ctx.createGain(); micNode.connect(inGain); if (node) inGain.connect(node);
     const split = ctx.createChannelSplitter(2); micNode.connect(split);
     meters = [0, 1].map((i) => { const a = ctx.createAnalyser(); a.fftSize = 512; split.connect(a, i); return { a, buf: new Float32Array(512) }; });
-    const stereo = micNode.channelCount > 1 || (micStream.getAudioTracks()[0].getSettings().channelCount || 1) > 1;
-    $('#tb-in').classList.add('on'); rear.inputsOn(true); status(stereo ? 'IN 1 + IN 2 active' : 'IN 1 active (the source is mono, IN 2 stays empty)');
+    const track = micStream.getAudioTracks()[0], label = (track && track.label) || '', builtin = BUILTIN.test(label);
+    const stereo = micNode.channelCount > 1 || ((track && track.getSettings().channelCount) || 1) > 1;
+    if (builtin) { inGain.gain.setValueAtTime(0, ctx.currentTime); inGain.gain.linearRampToValueAtTime(1, ctx.currentTime + 3); }
+    $('#tb-in').classList.add('on'); rear.inputsOn(true);
+    status((label ? label + ' – ' : '') + (stereo ? 'IN 1 + IN 2 active' : 'IN 1 active (mono, IN 2 stays empty)')
+      + (builtin ? ' · the built-in microphone hears the speakers: use headphones, or it howls' : ''), builtin);
+    inDevices(track && track.getSettings().deviceId, label);
   } catch (e) { status('No access to the microphone', true); }
 }
-$('#tb-in').addEventListener('click', async () => { await powerOn(); enableInput(); });
+function disableInput(why) {
+  if (!micNode) return;
+  try { micNode.disconnect(); inGain.disconnect(); } catch (e) { /* gone */ }
+  micStream.getTracks().forEach((t) => t.stop());
+  micNode = micStream = inGain = meters = null;
+  $('#tb-in').classList.remove('on', 'ask'); rear.inputsOn(false); rear.levels(0, 0);
+  if (why) status(why);
+}
+async function inDevices(cur, label) {   // the inputs there are (their names only once the microphone was allowed)
+  const sel = $('#insel'); let ds = [];
+  try { ds = (await navigator.mediaDevices.enumerateDevices()).filter((d) => d.kind === 'audioinput' && d.deviceId !== 'default' && d.deviceId !== 'communications'); } catch (e) { /* none */ }
+  sel.textContent = '';
+  ds.forEach((d, i) => { const o = document.createElement('option'); o.value = d.deviceId; o.textContent = 'In: ' + (d.label || 'input ' + (i + 1)); sel.appendChild(o); });
+  const hit = ds.find((d) => d.deviceId === cur) || ds.find((d) => label && (d.label === label || label.endsWith(d.label)));   // ('default' is not in the list: by its name)
+  if (hit) sel.value = hit.deviceId;
+  sel.hidden = ds.length < 2;
+}
+$('#insel').addEventListener('change', async (e) => {
+  inDev = e.target.value; try { localStorage.setItem('vibe.indev', inDev); } catch (x) { /* private mode */ }
+  disableInput(); await enableInput();
+});
+$('#tb-in').addEventListener('click', async () => { if (micNode) { disableInput('Audio input off'); return; } await powerOn(); enableInput(); });
 $('#tb-media').addEventListener('click', (e) => mediaPick(e));
 mediaRestore();
 
@@ -782,6 +1006,51 @@ requestAnimationFrame(loop);
 
 // ---------------------------------------------------------------- page bits ----------------------------------------
 function status(text, bad) { const s = $('#status'); s.textContent = text; s.classList.toggle('bad', !!bad); }
+// SDK 23: the stage – a second, bigger picture the firmware draws itself (docs/sdk-23-buehne.md). Mode 0 off, 1 above the
+// device, 2 alone; Esc leaves 2. Remembered per firmware. In the Jukebox: &stage=1 shows it from the start.
+let stageInfo = null, stageMode = 0, stageImg = null, stageCtx = null;
+const stageEl = document.createElement('div'); stageEl.id = 'stagebox'; stageEl.hidden = true;
+const stageCanvas = document.createElement('canvas'); stageEl.append(stageCanvas);
+$('.stage').insertBefore(stageEl, $('#stagewrap'));
+const STAGE_KEY = () => 'vibe.stage.' + ((current && current.id) || '');
+function stageReady(info) {
+  stageInfo = info; stageMode = 0; stageEl.hidden = true; document.body.classList.remove('stagefull'); { const b = $('#tb-stage'); if (b) { b.hidden = !info; b.classList.remove('on'); } }
+  if (!info) { fit(); return; }
+  stageCanvas.width = info.w; stageCanvas.height = info.h; stageCtx = stageCanvas.getContext('2d'); stageImg = stageCtx.createImageData(info.w, info.h);
+  stageEl.style.background = '#' + (info.bg >>> 0).toString(16).padStart(6, '0');
+  let want = info.replaces ? 2 : 0;                 // (VIBE_STAGE_REPLACES: the stage is the firmware's face – it opens alone, the device one key away)
+  try { const k = localStorage.getItem(STAGE_KEY()); if (k !== null) want = +k; } catch (e) { /* storage off */ }
+  if (JUKEBOX && new URLSearchParams(location.search).get('stage') === '1') want = info.replaces ? 2 : 1;
+  stageSet(want === 2 && !info.replaces ? 1 : want);   // (never back into "alone" by itself – unless the stage replaces the device)
+}
+function stageSet(mode) {
+  if (!stageInfo) return;
+  stageMode = mode; stageEl.hidden = mode === 0; document.body.classList.toggle('stagefull', mode === 2); $('#tb-stage')?.classList.toggle('on', mode > 0);
+  if (node && running) node.port.postMessage({ t: 'stage', on: mode > 0 });
+  try { localStorage.setItem(STAGE_KEY(), String(mode)); } catch (e) { /* storage off */ }
+  fit();
+}
+function stageFrame(fb) {
+  if (!stageImg) return;
+  const d = stageImg.data;
+  for (let i = 0, j = 0; i < fb.length; i++, j += 4) { const v = fb[i]; d[j] = (v >> 8) & 0xF8; d[j + 1] = (v >> 3) & 0xFC; d[j + 2] = (v << 3) & 0xF8; d[j + 3] = 255; }
+  stageCtx.putImageData(stageImg, 0, 0);
+}
+$('#tb-stage')?.addEventListener('click', () => stageSet(stageMode === 0 ? 1 : stageMode === 1 ? 2 : 0));
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && stageMode === 2) stageSet(1); });
+{ // pointer and wheel on the stage → VIBE_EV_STAGE (19): x / y in stage pixels, pointer index, modifiers
+  const ptrs = new Map();
+  const at = (e) => { const r = stageCanvas.getBoundingClientRect(); const x = Math.floor((e.clientX - r.left) * stageInfo.w / r.width), y = Math.floor((e.clientY - r.top) * stageInfo.h / r.height);
+    return x < 0 || y < 0 || x >= stageInfo.w || y >= stageInfo.h ? null : y * 4096 + x; };
+  const mods = (e) => (e.shiftKey ? 1 : 0) | (e.button === 2 || (e.buttons & 2) ? 2 : 0) | (e.ctrlKey || e.metaKey ? 4 : 0);
+  const idx = (e) => { let i = ptrs.get(e.pointerId); if (i === undefined) { const used = new Set(ptrs.values()); i = 0; while (used.has(i) && i < 9) i++; ptrs.set(e.pointerId, i); } return i; };
+  stageCanvas.addEventListener('pointerdown', (e) => { if (!stageInfo || stageMode === 0) return; const v = at(e); if (v === null) return; stageCanvas.setPointerCapture(e.pointerId); send(19, 0, 1, v, idx(e) | (mods(e) << 8)); e.preventDefault(); });
+  stageCanvas.addEventListener('pointermove', (e) => { if (!stageInfo || !ptrs.has(e.pointerId)) return; const r = stageCanvas.getBoundingClientRect(); const x = Math.max(0, Math.min(stageInfo.w - 1, Math.floor((e.clientX - r.left) * stageInfo.w / r.width))), y = Math.max(0, Math.min(stageInfo.h - 1, Math.floor((e.clientY - r.top) * stageInfo.h / r.height))); send(19, 1, 1, y * 4096 + x, ptrs.get(e.pointerId) | (mods(e) << 8)); });
+  const up = (e) => { if (!stageInfo || !ptrs.has(e.pointerId)) return; const r = stageCanvas.getBoundingClientRect(); const x = Math.max(0, Math.min(stageInfo.w - 1, Math.floor((e.clientX - r.left) * stageInfo.w / r.width))), y = Math.max(0, Math.min(stageInfo.h - 1, Math.floor((e.clientY - r.top) * stageInfo.h / r.height))); send(19, 2, 0, y * 4096 + x, ptrs.get(e.pointerId) | (mods(e) << 8)); ptrs.delete(e.pointerId); };
+  stageCanvas.addEventListener('pointerup', up); stageCanvas.addEventListener('pointercancel', up);
+  stageCanvas.addEventListener('wheel', (e) => { if (!stageInfo || stageMode === 0) return; const v = at(e); if (v === null) return; send(19, 3, 0, -(e.deltaMode ? e.deltaY : e.deltaY / 100), 0 | (mods(e) << 8)); e.preventDefault(); }, { passive: false });
+  stageCanvas.addEventListener('contextmenu', (e) => e.preventDefault());
+}
 function fit() {
   const vw = document.documentElement.clientWidth, vh = document.documentElement.clientHeight;
   const pad = vw < 700 || vh < 500 ? 6 : 28, top = $('.topbar').offsetHeight + 8, back = rearEl.hidden ? 0 : rearEl.offsetHeight + 12;
@@ -789,8 +1058,17 @@ function fit() {
   const side = !cheatEl.hidden && vw > 900 ? cheatEl.offsetWidth + 24 : 0;   // the cheat sheet takes the right edge
   $('.stage').style.paddingRight = side + 'px';
   const DH = panel.box ? BOX_H : 860;               // (the box view: no keys, no pads – lower)
-  const s = Math.max(0.1, Math.min((vw - pad * 2 - side) / 1600, (vh - top - pad - st - back) / DH));
+  let room = vh - top - pad - st - back;
+  if (stageMode === 1 && stageInfo) {               // SDK 23: the stage above the device – it gets what the device does not need, at least half
+    const devH = Math.min((vw - pad * 2 - side) / 1600, room / DH) * DH, want = Math.max(room * 0.5, room - devH - 12);
+    const sw = Math.min(vw - pad * 2 - side, want * stageInfo.w / stageInfo.h), sh = sw * stageInfo.h / stageInfo.w;
+    stageEl.style.width = sw + 'px'; stageEl.style.height = sh + 'px'; room -= sh + 12;
+  }
+  const s = Math.max(0.1, Math.min((vw - pad * 2 - side) / 1600, room / DH));
   dev.style.transform = `scale(${s})`; wrap.style.width = 1600 * s + 'px'; wrap.style.height = DH * s + 'px';
+  if (stageMode === 2 && stageInfo) {               // the stage alone: as big as the window allows, its ratio kept
+    const sw = Math.min(vw - pad * 2, (vh - top - pad - st) * stageInfo.w / stageInfo.h); stageEl.style.width = sw + 'px'; stageEl.style.height = sw * stageInfo.h / stageInfo.w + 'px';
+  }
 }
 window.addEventListener('resize', fit); showRear(rearOn); showCheat(cheatOn);
 // the box view (VIBE Box): no keys and pads, a bigger display – the plugin's own view by default; the choice is remembered
@@ -804,7 +1082,16 @@ const markView = () => {                              // (the dropdown shows the
   $('#tb-view').value = bigOn ? 'display' : editor && editor.open ? 'editor' : panel.box ? 'rack' : 'full';
 };
 const setBox = (on) => { panel.setBox(on); try { localStorage.setItem(BOX_KEY, on ? '1' : '0'); } catch (e) { /* storage off */ } fit(); markView(); };
-const setBig = (on) => { bigOn = on; panel.showBig(on); markView(); };
+if (JUKEBOX) { panel.setBox(true); fit(); markView(); }   // (5.11., Sven: the Jukebox in the rack view – not remembered: the visitor's own Web Player stays as it was)
+const setBig = (on) => {
+  bigOn = on; panel.showBig(on); markView();
+  // (3.11.2026, Sven: from Display there was no way back – only a click beside the picture) a button, and Escape
+  if (on && panel.bigEl && !panel.bigEl.querySelector('.bigback')) {
+    const b = document.createElement('button'); b.type = 'button'; b.className = 'bigback'; b.textContent = '\u2190 Back to the device';
+    b.addEventListener('click', (e) => { e.stopPropagation(); setBig(false); }); panel.bigEl.prepend(b);
+  }
+};
+document.addEventListener('keydown', (e) => { if (bigOn && e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setBig(false); } }, true);
 panel.onBig = setBig;                                 // (a click on the picture: back to the view before)
 // the View dropdown (27.10.): Editor (the plugin, a firmware with parameters) · Full · Rack (the box: no keys, no pads) ·
 // Display (just the screen – over the view chosen before, which it goes back to)
@@ -827,7 +1114,12 @@ function editorSetup(b, key) {
   if (PLUGIN && window.vibe_ctl_save) editor.onLearn = (p, x, y) => learnMenu(p, x, y);   // (0.7.0: MIDI-Learn per parameter)
   window.vibeFocusMove = (c, pg, t) => { if (editor && editor.open) editor.focusMove(c || 0, pg || 0, t || 0); };   // (the controller: card, page, track)   // (the Editor's small display, too)
   const ED_KEY = key; { const o = $('#tb-view option[value=editor]'); o.hidden = false; o.disabled = false; }
+  // (5.11.: the Editor starts below the top bar as it is – the Web Player's is taller than the plugin's 58 px, its
+  //  display and cards lay over the toolbar – Sven; a bar that wraps on a narrow window moves it along)
+  const edTop = () => { const tb = document.querySelector('.topbar'); if (editor.el && tb) editor.el.style.top = Math.ceil(tb.getBoundingClientRect().bottom) + 'px'; };
+  if (window.ResizeObserver && document.querySelector('.topbar')) new ResizeObserver(() => { if (editor.open) edTop(); }).observe(document.querySelector('.topbar'));
   setEd = (on) => { document.body.classList.toggle('editing', on);
+    if (on) edTop();
     editor.show(on); if (on && lastFb) editor.frame(lastFb); if (!PLUGIN && node) node.port.postMessage({ t: 'edwant', on });
     try { localStorage.setItem(ED_KEY, on ? '1' : '0'); } catch (e) { /* storage off */ } if (!on) fit(); markView(); };
   // the Editor is for native firmwares (their parameters in groups, or more than a converted FM-1 firmware's handful
@@ -835,11 +1127,13 @@ function editorSetup(b, key) {
   checkEditor = async () => {
     let ok = false;
     let fm1 = false;
-    try { const l = JSON.parse(await b.vibe_params()); ok = l.some((p) => p.group) || l.length > 7;
-          fm1 = l.some((p) => p.id === 'algorithm') && l.some((p) => p.id === 'presets'); } catch (e) { ok = false; }
+    let native = false;
+    try { const l = JSON.parse(await b.vibe_params()); native = l.some((p) => p.group) || l.length > 7;
+          fm1 = l.some((p) => p.id === 'algorithm') && l.some((p) => p.id === 'presets'); } catch (e) { native = false; }
+    ok = native || (!PLUGIN && !!edPage);             // (5.11., test: an FM-1 firmware with its own web editor page has the Editor too)
     panel.fm1 = fm1;                                  // (1.11.: a converted FM-1 firmware names its soft keys too – its display takes no clicks)
     const o = $('#tb-view option[value=editor]'); o.disabled = !ok; o.textContent = ok ? 'Editor' : 'Editor (native firmwares)';
-    panel.touchOk = ok;                               // (31.10.: a native firmware's display takes clicks – soft keys, knob columns)
+    panel.touchOk = native;                           // (31.10.: a native firmware's display takes clicks – soft keys, knob columns)
     if (!ok && editor.open) { setEd(false); setBox(true); }
     return ok;
   };
@@ -866,6 +1160,11 @@ const edB = {
   vibe_editor_send: (b64) => { const s = atob(b64), u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); edPost({ t: 'eddata', bytes: u }); },
   vibe_editor_take: async () => { const r = edPosts.map((u) => { let s = ''; for (const x of u) s += String.fromCharCode(x); return btoa(s); }); edPosts = []; return JSON.stringify(r); },
   vibe_ev: (type, id, down, value, midi) => send(type, id, !!down, value, midi),
+  // (5.11., test) an FM-1 firmware's own web editor (fm1-midi.js): its SysEx to the firmware as from a MIDI input, the rest
+  // as MIDI in; the firmware's MIDI out goes back to the page (d.t === 'midi')
+  vibe_midi: (b) => { if (!node || !running) return;
+    if (b[0] === 0xF0) { if (b[b.length - 1] === 0xF7) node.port.postMessage({ t: 'sysex', bytes: b }); }
+    else if (b[0] >= 0x80) send(EV.MIDI, 0, false, 0, b[0] | (b[1] || 0) << 8 | (b[2] || 0) << 16); },
 };
 async function edDescribed(d) {                      // (a firmware started: its description, its page – if it has one)
   edDesc = { params: d.params || [], editor: d.editor }; edVals = edDesc.params.map((p) => p.v); edPosts = [];

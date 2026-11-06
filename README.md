@@ -241,6 +241,32 @@ A device may have more than 16 pads, up to 128, as a grid: the VIBE's 4 × 4, a 
 reach every pad. Nothing changes on the VIBE, in the plugin or in the emulator: there the grid is 4 × 4, as always.
 **[DEVICES.md](DEVICES.md)** has the details.
 
+## New in SDK 23 (6 November): the stage – your own layout, drawn by your firmware
+
+A firmware may draw a **second, bigger picture**: the stage (480 × 270 up to 1280 × 720, 960 × 540 recommended). The
+emulator shows it above the device or in its place (**Stage** in the top bar, Esc goes back); the plugin follows, the VIBE
+later over HDMI. Turntables for a DJ, a whole sequencer grid, a waveform in full width – or a completely different face
+for your instrument. Clicks, drags, the mouse wheel and touch come back as `VIBE_EV_STAGE`, in stage pixels.
+
+```c
+static uint16_t stage[960 * 540];                               /* the picture is yours (RGB565) */
+void vibe_on_init(float sr) { vibe_stage(stage, 960, 540, 0x101418, VIBE_STAGE_REPLACES); }   /* or flags 0: above the device */
+void vibe_on_stage(uint16_t *fb, int w, int h) { vg_clear(0x101418); vg_text("HELLO", w / 2, 20, VG_BIG | VG_X2, 0xFFFFFF, VG_CENTER); }
+```
+
+Three rules, and `vibe-check` tests the first two:
+1. **Never the only way.** Everything stays playable with the display and the controls (the VIBE and older hosts show no
+   stage): the stage is a view and a shortcut. Your firmware must run – and sound – the same when `vibe_on_stage` is
+   never called.
+2. **A picture, not a second program.** Nothing time-critical in `vibe_on_stage` (the rules of `vibe_on_draw`); the
+   stage's input arrives as events like every other control.
+3. **Every element on the stage is one control of the base**, and says which (`"CUTOFF – or encoder 1"`): HOME's
+   overview and controller profiles keep working, whatever the stage looks like.
+
+`VIBE_STAGE_REPLACES` lets the stage take the device's place in the emulator (the device is one key away). Fonts: every
+font `| VG_X2` is twice the size. Put `"stage": {"w": 960, "h": 540}` into `firmware.json`. **`examples/example-stage`** is
+the smallest firmware with a stage (a big dial, a meter, 90 lines); the VIBE DJ's turntables are the big one.
+
 ## New on 3 November: buttons, endless encoders, the `.vibe.aot` by hand
 
 - **Buttons: pressed is only `e->down`.** For `VIBE_EV_BUTTON`, `e->value` is always 0 – in the plugin, the emulator and

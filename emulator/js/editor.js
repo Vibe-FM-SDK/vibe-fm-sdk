@@ -108,6 +108,10 @@ export class Editor {
     if (this.b.vibe_editor) { try { const d = JSON.parse(await this.b.vibe_editor()); if (d && d.cards) this.ed = d; } catch (e) { this.ed = null; } }
     const tabs = [];
     for (const p of list) { const t = this.tabOf(p); if (!tabs.includes(t)) tabs.push(t); }
+    if (this.ed && this.ed.cards.length) {            // (5.11.) the firmware's card order orders its tabs too (an FM-1 firmware: its
+      const tr = (t) => Math.min(...list.filter((p) => this.tabOf(p) === t).map((p, k) => this.rank(this.cardOf(p), k)));   //  tracks first, the FM-1's knobs last)
+      tabs.sort((x, y) => tr(x) - tr(y));
+    }
     if (!tabs.includes(this.tab)) this.tab = tabs[0] ?? '';
     this.tabs.textContent = '';
     if (tabs.length > 1) for (const t of tabs) {
@@ -164,6 +168,9 @@ export class Editor {
     } else if (op === 'note') {
       const n = args[0] | 0, v = Math.max(0, Math.min(127, Math.round(+args[1] * 127)));
       if (n >= 0 && n < 128 && this.b.vibe_ev) this.b.vibe_ev(5, 0, 0, 0, (v ? 0x90 : 0x80) | (n << 8) | ((v || 64) << 16));   // (VIBE_EV_MIDI, as a keyboard's)
+    } else if (op === 'midi') {                       // (5.11., test) an FM-1 firmware's own editor: its Web MIDI (fm1-midi.js) to the firmware
+      const b = args[0] instanceof Uint8Array ? args[0] : null;
+      if (b && b.length && b.length <= 4096 && this.b.vibe_midi) this.b.vibe_midi(Array.from(b));
     } else if (op === 'frames') this.pageFrames = !!args[0];
   }
   tabOf(p) { const g = p.group || ''; const k = g.indexOf(' · '); return k > 0 ? g.slice(0, k) : ''; }

@@ -50,6 +50,12 @@ body.plugin .brand span { color: #FF60BE; font-weight: 800; }
 .bigdisp.on { display: flex; }
 .bigdisp canvas { image-rendering: pixelated; image-rendering: crisp-edges; border-radius: 6px; box-shadow: 0 0 60px #000; }
 .stagewrap { position: relative; -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; }
+/* SDK 23: the firmware's stage above the device (its ratio kept, the firmware's background in the margins); alone: the window */
+#stagebox { flex: none; margin: 0 0 12px; border-radius: 10px; overflow: hidden; box-shadow: 0 10px 40px rgba(0, 0, 0, .5); touch-action: none; }
+#stagebox canvas { display: block; width: 100%; height: 100%; image-rendering: auto; }
+body.stagefull #stagewrap, body.stagefull .legal, body.stagefull #rear, body.stagefull #cheat { display: none !important; }   /* (the bar stays: the firmware list, STAGE back to the device) */
+body.stagefull .stage { padding: 0 !important; } body.stagefull #stagebox { margin: 0; border-radius: 6px; box-shadow: none; }
+#tb-stage.on { color: #FF60BE; }
 .device {
   position: absolute; left: 0; top: 0; width: 1600px; height: 860px; transform-origin: 0 0;
   border-radius: 30px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
@@ -278,10 +284,10 @@ html.plugin-wait #power, html.plugin-wait .topbar .tools { display: none !import
 
 /* ---------- the plugin's Editor view (editor.js): every parameter at once ---------- */
 body.editing .stage, body.editing #status, body.editing .cheat, body.editing #cheat { display: none !important; }
-.editor { position: fixed; inset: 58px 0 0 0; display: grid; grid-template-columns: 300px 1fr; gap: 18px; padding: 8px 18px 18px; overflow: hidden; }
+.editor { position: fixed; inset: 58px 0 0 0; display: grid; grid-template-columns: 480px 1fr; gap: 18px; padding: 8px 18px 18px; overflow: hidden; }   /* (31.10.: the display 1:1 – 300 px made VOX unreadable in the plugin) */
 .editor[hidden] { display: none; }
 .ed-side { display: flex; flex-direction: column; gap: 12px; min-height: 0; }
-.ed-disp { width: 300px; height: 200px; border-radius: 10px; border: 1px solid var(--line); image-rendering: auto; background: #000; }
+.ed-disp { width: 480px; height: 320px; border-radius: 10px; border: 1px solid var(--line); image-rendering: auto; background: #000; }
 .ed-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
 .ed-tab { flex: 1 0 44px; padding: 9px 0; border-radius: 8px; border: 1px solid var(--line); background: #17191d; color: var(--fg); font: 800 15px var(--sans); cursor: pointer; }
 .ed-tab.on { background: var(--ed-acc, #FF60BE); border-color: var(--ed-acc, #FF60BE); color: #111; }
@@ -334,6 +340,7 @@ body.editing .stage, body.editing #status, body.editing .cheat, body.editing #ch
 .ed-xy::before, .ed-xy::after { content: ''; position: absolute; background: #2a2d33; }
 .ed-xy::before { left: 50%; top: 0; width: 1px; height: 100%; } .ed-xy::after { top: 50%; left: 0; height: 1px; width: 100%; }
 .ed-dot { position: absolute; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: var(--ed-acc, #FF60BE); box-shadow: 0 0 0 3px rgba(255,255,255,.12); pointer-events: none; }
+@media (max-width: 1000px) { .editor { grid-template-columns: 300px 1fr; } .ed-disp { width: 300px; height: 200px; } }
 @media (max-width: 760px) { .editor { grid-template-columns: 1fr; overflow-y: auto; } .ed-disp { width: 100%; height: auto; aspect-ratio: 3 / 2; } }
 
 /* the View dropdown (27.10.): Editor · Full · Rack · Display */

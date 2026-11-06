@@ -199,10 +199,12 @@ int vibe_media_dropped(char *path, int max, int *pad, int *x, int *y)
   return r == 1 ? 1 : r == 0 ? 0 : -1;
 }
 
+int vibe_media_add(int ask) { char c = 0; return vibe_host_store(15, "", 0, &c, ask ? 1 : 0) == 1 ? 1 : -1; }   /* (SDK 22) */
+
 /* ================================================================ 2. drawing ==================================== */
 static uint16_t *FB;
-#define W VIBE_SCREEN_W
-#define H VIBE_SCREEN_H
+/* (SDK 23) the size of what vg_* draw into: the display (480 x 320, vg_begin) or the stage (vg_begin_size) */
+static int W = VIBE_SCREEN_W, H = VIBE_SCREEN_H;
 
 static inline uint16_t c565(uint32_t c) { return VIBE_HEX(c); }
 static inline void blend(int x, int y, uint32_t c, float a) {
@@ -217,7 +219,8 @@ static inline void blend(int x, int y, uint32_t c, float a) {
   *p = VIBE_RGB(r, g, b);
 }
 
-void vg_begin(uint16_t *fb) { FB = fb; }
+void vg_begin(uint16_t *fb) { FB = fb; W = VIBE_SCREEN_W; H = VIBE_SCREEN_H; }
+void vg_begin_size(uint16_t *fb, int w, int h) { FB = fb; W = w > 0 ? w : VIBE_SCREEN_W; H = h > 0 ? h : VIBE_SCREEN_H; }   /* (SDK 23: the stage) */
 void vg_clear(uint32_t c) { uint16_t v = c565(c); for (int i = 0; i < W * H; i++) FB[i] = v; }
 void vg_rect(int x, int y, int w, int h, uint32_t c) {
   if (x < 0) { w += x; x = 0; } if (y < 0) { h += y; y = 0; }
@@ -281,14 +284,17 @@ static const vf_glyph *glyph(const vf_font *f, uint32_t cp) {
   for (int i = 0; i < f->count; i++) if (f->g[i].cp == cp) return &f->g[i];
   return glyph(f, '?');
 }
+/* (SDK 23) font | VG_X2: the same face twice the size, pixel for pixel – for the stage (960 x 540 and more) */
+#define VG_SCALE(font) (((font) & VG_X2) ? 2 : 1)
+#define VG_FACE(font) (&vf_fonts[(font) & (VG_X2 - 1)])
 int vg_text_width(const char *t, int font) {
-  const vf_font *f = &vf_fonts[font]; int w = 0;
+  const vf_font *f = VG_FACE(font); int w = 0;
   while (*t) w += glyph(f, utf8_next(&t))->adv;
-  return w;
+  return w * VG_SCALE(font);
 }
-int vg_font_height(int font) { return vf_fonts[font].height; }
+int vg_font_height(int font) { return VG_FACE(font)->height * VG_SCALE(font); }
 int vg_text(const char *t, int x, int y, int font, uint32_t c, int align) {
-  const vf_font *f = &vf_fonts[font];
+  const vf_font *f = VG_FACE(font); const int sc = VG_SCALE(font);
   int w = vg_text_width(t, font);
   if (align == VG_CENTER) x -= w / 2; else if (align == VG_RIGHT) x -= w;
   while (*t) {
@@ -296,9 +302,11 @@ int vg_text(const char *t, int x, int y, int font, uint32_t c, int align) {
     const uint8_t *bits = vf_bits + g->off;
     for (int j = 0, k = 0; j < g->h; j++) for (int i = 0; i < g->w; i++, k++) {
       int v = (bits[k >> 1] >> ((k & 1) * 4)) & 15;
-      if (v) blend(x + g->x + i, y + g->y + j, c, v / 15.0f);
+      if (!v) continue;
+      if (sc == 1) blend(x + g->x + i, y + g->y + j, c, v / 15.0f);
+      else { int px = x + (g->x + i) * 2, py = y + (g->y + j) * 2; float a = v / 15.0f; blend(px, py, c, a); blend(px + 1, py, c, a); blend(px, py + 1, c, a); blend(px + 1, py + 1, c, a); }
     }
-    x += g->adv;
+    x += g->adv * sc;
   }
   return w;
 }
@@ -527,7 +535,7 @@ float vd_env_next(vd_env *e) {
 #define VIBE_EXPORT(n)
 #endif
 static struct { float in[VIBE_MAX_BLOCK], l[VIBE_MAX_BLOCK], r[VIBE_MAX_BLOCK], in2[VIBE_MAX_BLOCK]; } io;
-static uint16_t framebuffer[W * H];
+static uint16_t framebuffer[VIBE_SCREEN_W * VIBE_SCREEN_H];
 
 VIBE_EXPORT(vibe_sdk_version) int vibe_sdk_version(void) { return VIBE_HOST_PROTOCOL; }   /* (the host protocol: 7 – SDK 8 adds only optional exports) */
 /* SDK 5: the time table the host fills (VIBE FM Protocol 7.1), the frame counter, the flows */
@@ -988,6 +996,22 @@ VIBE_EXPORT(vibe_wasm_audio) void vibe_wasm_audio(int frames, int has_input) {
 }
 VIBE_EXPORT(vibe_wasm_rear) void *vibe_wasm_rear(void) { return &rear; }
 VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); vg_begin(framebuffer); vibe_on_draw(framebuffer); vg_begin(framebuffer); sk_draw(); return framebuffer; }
+
+/* ---- SDK 23: the stage – a second, bigger picture the firmware draws itself (docs/sdk-23-buehne.md, Protokoll 9.5) ---- */
+static struct { uint16_t w, h; uint32_t background; uint8_t want, flags, pad[2]; } stage_info;   /* (the host reads it once after init) */
+static uint16_t *stage_fb;
+__attribute__((weak)) void vibe_on_stage(uint16_t *fb, int w, int h) { (void)fb; (void)w; (void)h; }
+int vibe_stage(uint16_t *fb, int w, int h, uint32_t background, int flags) {
+  if (!fb || w < VIBE_STAGE_MIN_W || h < VIBE_STAGE_MIN_H || w > VIBE_STAGE_MAX_W || h > VIBE_STAGE_MAX_H) { stage_info.want = 0; stage_fb = 0; return 0; }
+  stage_info.w = (uint16_t)w; stage_info.h = (uint16_t)h; stage_info.background = background; stage_info.want = 1; stage_info.flags = (uint8_t)flags; stage_fb = fb;
+  return 1;
+}
+VIBE_EXPORT(vibe_wasm_stage_info) void *vibe_wasm_stage_info(void) { return &stage_info; }
+VIBE_EXPORT(vibe_wasm_stage_draw) uint16_t *vibe_wasm_stage_draw(void) {
+  if (!stage_info.want || !stage_fb) return 0;
+  vg_begin_size(stage_fb, stage_info.w, stage_info.h); vibe_on_stage(stage_fb, stage_info.w, stage_info.h); vg_begin(framebuffer);
+  return stage_fb;
+}
 VIBE_EXPORT(vibe_wasm_leds) void *vibe_wasm_leds(void) { return &leds; }
 VIBE_EXPORT(vibe_wasm_pad_leds) void *vibe_wasm_pad_leds(void) { return &padx; }   /* SDK 20: n, rgb[128], lvl[128] (Protokoll 15b) */
 VIBE_EXPORT(vibe_wasm_labels) void *vibe_wasm_labels(void) { return labels; }   /* VB_COUNT x 8 chars */
@@ -1005,6 +1029,8 @@ __attribute__((weak)) size_t strlen(const char *s) { size_t n = 0; while (s[n]) 
 __attribute__((weak)) int strcmp(const char *a, const char *b) { while (*a && *a == *b) a++, b++; return (unsigned char)*a - (unsigned char)*b; }
 __attribute__((weak)) int strncmp(const char *a, const char *b, size_t n) { for (; n && *a && *a == *b; n--) a++, b++; return n ? (unsigned char)*a - (unsigned char)*b : 0; }
 __attribute__((weak)) char *strcpy(char *d, const char *s) { char *r = d; while ((*d++ = *s++)) {} return r; }
+__attribute__((weak)) char *strcat(char *d, const char *s) { char *r = d; while (*d) d++; while ((*d++ = *s++)) {} return r; }   /* (FIZZ's core) */
+__attribute__((weak)) char *strncat(char *d, const char *s, size_t n) { char *r = d; while (*d) d++; while (n-- && *s) *d++ = *s++; *d = 0; return r; }
 __attribute__((weak)) char *strncpy(char *d, const char *s, size_t n) { char *r = d; for (; n && *s; n--) *d++ = *s++; for (; n; n--) *d++ = 0; return r; }
 __attribute__((weak)) char *strchr(const char *s, int c) { for (;; s++) { if (*s == (char)c) return (char *)s; if (!*s) return 0; } }
 __attribute__((weak)) void *memchr(const void *p, int c, size_t n) { const unsigned char *b = p; for (; n; n--, b++) if (*b == (unsigned char)c) return (void *)b; return 0; }

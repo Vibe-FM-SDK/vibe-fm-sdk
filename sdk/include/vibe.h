@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 20       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 23       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -59,14 +59,26 @@
                                       18 (31.10.2026): clicks into the display (VIBE_EV_TOUCH, x / y) – the plugin's and the
                                       browser's window, wherever the VIBE FM layout's zones (soft keys, knob columns) are not:
                                       a firmware's own tabs at the top. The VIBE has no touch screen: it never sends one.
-                                      19 (1.11.2026): device layouts (DEVICES.md) – "VIBE FM original"
+                                      19 (1.11.2026): device layouts (docs/sdk-19-geraete-layouts.md) – "VIBE FM original"
                                       is the base every firmware must work with; a VIBE FM compatible device may have more
                                       (keys up to 61, encoders VE_X1-8, faders VIBE_EV_FADER, buttons VB_X1-16, pads up to
                                       32, a bigger display): vibe_device() says what is there. No new import (op 14): a
                                       host that does not answer – the VIBE, the plugin, the browser today – is the base. 
                                       20 (2.11.2026): a pad grid of any shape – pads 16..128 as pad_cols x pad_rows
                                       (the VIBE 4 x 4, a Launchpad or Push 8 x 8, a 20 x 4 matrix …): vibe_device() says
-                                      it, VIBE_EV_PAD ids and vibe_led_pad() reach every pad. */
+                                      it, VIBE_EV_PAD ids and vibe_led_pad() reach every pad.
+                                      21 (4.11.2026): VIBE_EV_SAVE – the host is about to keep the firmware's state (a DAW
+                                      saves its project or a preset): write now, at once, everything you want back after a
+                                      restart – the sound selected, edits not yet stored. The plugin sends it before every
+                                      save and waits for the writes. A firmware that ignores it still runs (its autosave
+                                      may simply come too late).
+                                      22 (5.11.2026): vibe_media_add – a firmware's own "+ ADD FOLDER": the host opens its
+                                      folder dialog (the browser; later the plugin). Op 15 of vibe_host_store, no new
+                                      import: the VIBE and every older host answer -1 (the VIBE: a USB stick comes by itself).
+                                      23 (6.11.2026, docs/sdk-23-buehne.md): the stage – a second, bigger picture the firmware
+                                      draws itself (vibe_stage / vibe_on_stage, VIBE_EV_STAGE = 19, vg_begin_size, VG_X2):
+                                      turntables for VIBE DJ in the window and on play. Optional exports; the VIBE and every
+                                      older host show none – a firmware must be fully playable without it. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -136,6 +148,14 @@ typedef enum {
                            click comes as DOWN + UP when let go. Only for a firmware of the VIBE FM layout (sound parameters
                            or named soft keys) */
   VIBE_EV_FADER = 17,   /* SDK 19: a device's fader or pot (vibe_device: faders), id 0..15, value its position 0..1 (absolute) */
+  VIBE_EV_SAVE = 18,    /* SDK 21: the host keeps your state NOW (a DAW saves its project or a preset; later the VIBE before it
+                           switches off): write with vibe_store_write, in this call, all you want back after a restart – which
+                           sound / program is selected, edits not saved yet. No debounce, no "later": the host reads your files
+                           right after this call. id, down, value 0. Never sent while a block runs. */
+  VIBE_EV_STAGE = 19,   /* SDK 23: the stage (vibe_stage): id VIBE_STAGE_DOWN / _MOVE / _UP (down 1 while held, value = y * 4096 + x in
+                           stage pixels – VIBE_STAGE_X / _Y; midi[0] = pointer 0..9 (the mouse 0), midi[1] = modifiers VIBE_STAGE_MOD_*),
+                           VIBE_STAGE_WHEEL (value = +- steps), VIBE_STAGE_SHOWN / _HIDDEN (the host shows it now / no more).
+                           A click into the border never comes; no hover. The VIBE and an older host never send it. */
   VIBE_EV_TRANSPORT = 8 /* SDK 7: the host's transport (the DAW in the plugin; a MIDI clock on the device and in the browser): id VIBE_TRANSPORT_PLAY: down 1 = it plays
                            (from the top, at this frame), 0 = it stopped; id VIBE_TRANSPORT_TEMPO: value = BPM (0 = the host
                            gives none any more: the firmware's own tempo again). Sent when it changes, tempo before play. */
@@ -144,10 +164,30 @@ typedef enum {
 enum vibe_transport { VIBE_TRANSPORT_PLAY, VIBE_TRANSPORT_TEMPO };   /* ids of VIBE_EV_TRANSPORT (SDK 7) */
 enum vibe_pedal { VIBE_PEDAL_SWITCH, VIBE_PEDAL_EXPR };
 enum vibe_touch { VIBE_TOUCH_DOWN, VIBE_TOUCH_MOVE, VIBE_TOUCH_UP };   /* ids of VIBE_EV_TOUCH (SDK 18) */
+
+/* SDK 23: the stage (docs/sdk-23-buehne.md). In vibe_on_init: vibe_stage(my_buffer, 960, 540, 0x101012) – the buffer is yours
+   (static uint16_t stage[960 * 540]; RGB565), 480 x 270 up to 1280 x 720, flags below. 1 = taken (a host may show it – now, later or never),
+   0 = a size out of range. Then implement vibe_on_stage(fb, w, h): paint the whole picture with vg_* (vg_begin_size is done),
+   the rules of vibe_on_draw – nothing time-critical, and the firmware MUST run the same when it is never called. Called only
+   while the stage is visible, at most 60 times a second, in the drawing flow after vibe_on_draw. */
+#define VIBE_STAGE_MIN_W 480
+#define VIBE_STAGE_MIN_H 270
+#define VIBE_STAGE_MAX_W 1280
+#define VIBE_STAGE_MAX_H 720
+/* flags: VIBE_STAGE_REPLACES – the stage IS the firmware's face: a host that can opens with it in place of the device
+   (the Web Player: "alone"; the device view is one key away – Esc / STAGE – and the keys, pads and knobs play on). Without
+   it the stage comes above the device when the user asks. Either way the display and the controls must do everything. */
+enum vibe_stage_flags { VIBE_STAGE_REPLACES = 1 };
+int vibe_stage(uint16_t *fb, int w, int h, uint32_t background, int flags);
+void vibe_on_stage(uint16_t *fb, int w, int h);                          /* weak: a firmware without a stage leaves it out */
+enum vibe_stage_id { VIBE_STAGE_DOWN, VIBE_STAGE_MOVE, VIBE_STAGE_UP, VIBE_STAGE_WHEEL, VIBE_STAGE_SHOWN = 8, VIBE_STAGE_HIDDEN = 9 };
+enum vibe_stage_mod { VIBE_STAGE_MOD_SHIFT = 1, VIBE_STAGE_MOD_RIGHT = 2, VIBE_STAGE_MOD_CTRL = 4 };
+#define VIBE_STAGE_X(e) ((int)(e)->value % 4096)
+#define VIBE_STAGE_Y(e) ((int)(e)->value / 4096)
 #define VIBE_TOUCH_X(e) ((int)(e)->value % 512)
 #define VIBE_TOUCH_Y(e) ((int)(e)->value / 512)
 
-/* SDK 19: the device the firmware runs on (DEVICES.md). Ask in vibe_on_init; it does not change while
+/* SDK 19: the device the firmware runs on (docs/sdk-19-geraete-layouts.md). Ask in vibe_on_init; it does not change while
    the firmware runs. Every firmware stays fully playable with the base, "VIBE FM original" (25 keys, 16 pads, VE_1..VE_DATA,
    F1-F6, K1-K6, the transport, 480 x 320): what is more is a shortcut, never the only way to a function.
    keys: 25..61 (VIBE_EV_KEY ids 0..keys-1) · pads: 16..128 (VIBE_EV_PAD ids 0..pads-1, SDK 20) as a grid of pad_cols x
@@ -414,6 +454,12 @@ int vibe_media_close(int handle, int keep);
    again: more may wait), 0 = none, -1 = this host takes no drops. Call it once in vibe_on_init: the host lets files be
    dropped only for a firmware that asked, and sends VIBE_EV_MEDIA / VIBE_MEDIA_EV_DROPPED when one comes. */
 int vibe_media_dropped(char *path, int max_bytes, int *pad, int *x, int *y);
+/* SDK 22: another source, chosen by the user – a firmware's own "+ ADD FOLDER" row. ask = 0: may it be offered here?
+   1 = yes, -1 = no (the VIBE: a USB stick or the card come by themselves; an older host). ask = 1: the host lets the user
+   pick a folder now (the browser: its folder dialog – a click on the page may be needed first, the host shows one); 1 =
+   asked, -1 = cannot. Whatever the user does, nothing waits: a folder picked comes as VIBE_EV_MEDIA /
+   VIBE_MEDIA_EV_SOURCES, as any new source. Call it from vibe_on_event (a key, ENTER on that row). */
+int vibe_media_add(int ask);
 
 /* ---- time (SDK 5) ---------------------------------------------------------------------------------------------- */
 /* The timeline: frames computed since the first vibe_on_audio (frame 0). vibe_frames() = the first frame of the next

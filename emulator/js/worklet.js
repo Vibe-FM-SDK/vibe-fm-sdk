@@ -57,7 +57,7 @@ class Media {
     if (op === 6) {
       if (!this.asked) this.send({ t: 'masked' });   // (the page: a dropped folder is media now)
       this.asked = true; let w = 0;
-      for (const s of this.src) { const b = utf8(`${s.key}\t${s.write ? 'w' : ''}\t${s.label}\n`); if (w + b.length > len) break; u8.set(b, dp + w); w += b.length; }
+      for (const s of this.src) { const b = utf8(`${s.key}\t${s.write ? 'w' : ''}${s.fixed ? 'k' : ''}\t${s.label}\n`); if (w + b.length > len) break; u8.set(b, dp + w); w += b.length; }
       return w;
     }
     if (op >= 7 && op <= 9) {
@@ -153,6 +153,7 @@ class VibeHost extends AudioWorkletProcessor {
             const dv = options.processorOptions.device; if (!dv || len < dv.length) return -1;
             new Uint8Array(mem.buffer, dp, dv.length).set(dv); return 1;
           }
+          if (op === 15) { if (this.media.src.some((s) => s.fixed)) return -1; if (len) send({ t: 'madd' }); return 1; }   // (5.11.: a page with a fixed set – the Jukebox – offers no folder dialog)   // SDK 22: vibe_media_add – the page opens its folder dialog
           if (op >= 6) return this.media.store(op, new Uint8Array(mem.buffer), new DataView(mem.buffer), np, nl, dp, len, text, utf8);   // SDK 13: media
           if (op === 5) {                                    // SDK 4: read at an offset (in the data's first 4 bytes)
             if (!f) return -1; const off = new DataView(mem.buffer).getUint32(dp, true);
@@ -170,7 +171,11 @@ class VibeHost extends AudioWorkletProcessor {
       this.rear = x.vibe_wasm_rear ? x.vibe_wasm_rear() : 0;   // SDK 2: cv_out, gate_out, cv_in, in_mode[2], in_link
       this.vt = this.sdk >= 5 && x.vibe_wasm_time ? x.vibe_wasm_time() : 0;   // SDK 5: the time table
       this.ok = true;
-      send({ t: 'ready', sdk: this.sdk, sampleRate, areas: x.vibe_wasm_areas ? x.vibe_wasm_areas() : 0 });   // (SDK 12: its own areas)
+      // SDK 23: the stage – a second, bigger picture the firmware draws (vibe_stage in its init: size, background)
+      this.stage = null; this.stageOn = false;
+      if (x.vibe_wasm_stage_info && x.vibe_wasm_stage_draw) { const q = x.vibe_wasm_stage_info(), dv = new DataView(mem.buffer);
+        if (dv.getUint8(q + 8)) this.stage = { w: dv.getUint16(q, true), h: dv.getUint16(q + 2, true), bg: dv.getUint32(q + 4, true), replaces: !!(dv.getUint8(q + 9) & 1) }; }
+      send({ t: 'ready', sdk: this.sdk, sampleRate, areas: x.vibe_wasm_areas ? x.vibe_wasm_areas() : 0, stage: this.stage });   // (SDK 12: its own areas)
       // SDK 11 (Protokoll 7.2a): the firmware's mixer parameters (mix_*) – the page maps a mixer controller to them
       this.mix = [];
       if (x.vibe_wasm_param_count && x.vibe_wasm_param_info) {
@@ -209,6 +214,7 @@ class VibeHost extends AudioWorkletProcessor {
         else if (d.t === 'cvin') { if (this.rear) new Float32Array(this.x.memory.buffer, this.rear, 6)[2] = d.volts; }
         else if (d.t === 'pset') { if (this.x.vibe_wasm_param_set) this.x.vibe_wasm_param_set(d.i, d.v); }   // (SDK 11) a mixer controller; the Editor
         else if (d.t === 'edwant') this.edWant = !!d.on;  // (the Editor is open: values and posts with every picture)
+        else if (d.t === 'stage') { if (this.stage && this.stageOn !== !!d.on) { this.stageOn = !!d.on; this.x.vibe_wasm_event(19, d.on ? 8 : 9, 0, 0, 0); } }   // SDK 23: shown / hidden
         else if (d.t === 'curve') {                        // (SDK 9) a card's curve – answered at once (the browser has one flow)
           let pts = [];
           if (this.x.vibe_wasm_editor_curve && this.x.vibe_wasm_editor_points) {
@@ -241,7 +247,9 @@ class VibeHost extends AudioWorkletProcessor {
           }
           const padx = this.grid && this.x.vibe_wasm_pad_leds ? new Uint8Array(this.x.memory.buffer, this.x.vibe_wasm_pad_leds(), 4 + 128 * 8).slice() : null;   // (SDK 20: n, rgb[128], lvl[128])
           const tr = labels ? [fb.buffer, leds.buffer, labels.buffer] : [fb.buffer, leds.buffer]; if (padx) tr.push(padx.buffer);
-          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts, padx: padx && padx.buffer }, tr);
+          let stage = null;                                // SDK 23: the stage, only while the page shows it
+          if (this.stage && this.stageOn) { const sp = this.x.vibe_wasm_stage_draw(); if (sp) { stage = new Uint16Array(this.x.memory.buffer, sp, this.stage.w * this.stage.h).slice(); tr.push(stage.buffer); } }
+          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts, padx: padx && padx.buffer, stage: stage && stage.buffer }, tr);
         }
       } catch (e) { this.crash(e); }
     };
@@ -280,7 +288,7 @@ class VibeHost extends AudioWorkletProcessor {
   }
   edTab(tab) {                                         // (the tab's name into the firmware's buffer – its address, 0 = none)
     const x = this.x; if (!tab || !x.vibe_wasm_editor_tabbuf) return 0;
-    const p = x.vibe_wasm_editor_tabbuf(), b = new TextEncoder().encode(String(tab)).slice(0, 31), m = new Uint8Array(x.memory.buffer, p, 32);
+    const p = x.vibe_wasm_editor_tabbuf(), b = utf8(String(tab)).slice(0, 31), m = new Uint8Array(x.memory.buffer, p, 32);
     m.set(b); m[b.length] = 0; return p;
   }
   mediaEvents() { const m = this.media; if (m.ready && m.asked) { m.ready = false; m.ev.push([2, 1, 0]); } if (!m.ev.length) return; const ev = m.ev; m.ev = []; for (const [id, down, v] of ev) this.x.vibe_wasm_event(12, id, down, v, 0); }   // SDK 13: VIBE_EV_MEDIA

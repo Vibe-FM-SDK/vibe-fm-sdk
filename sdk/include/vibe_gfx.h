@@ -16,9 +16,11 @@ enum vg_font { VG_SMALL, VG_BOLD, VG_MED, VG_BIG, VG_HUGE, VG_LOGO, VG_FONT_COUN
    VG_LOGO   Archivo ExtraBold 58 px          boot logo – the letters of "VIBE FM Mk1" and digits only
    (29.10.2026: Roboto Condensed instead of JetBrains Mono, 14 px instead of 12 – see tools/mkfont.py) */
 
+#define VG_X2 0x100   /* (SDK 23) or it into a font: the same face twice the size, pixel for pixel – for the stage (VG_BIG | VG_X2) */
 enum vg_align { VG_LEFT, VG_CENTER, VG_RIGHT };
 
-void vg_begin(uint16_t *vibe_fb);                                 /* every vg_* call draws into this framebuffer */
+void vg_begin(uint16_t *vibe_fb);                                 /* every vg_* call draws into this framebuffer (480 x 320) */
+void vg_begin_size(uint16_t *fb, int w, int h);                   /* (SDK 23) … into a picture of this size – the stage (vibe_on_stage gets it set already) */
 void vg_clear(uint32_t rgb);
 void vg_rect(int x, int y, int w, int h, uint32_t rgb);
 void vg_rect_a(int x, int y, int w, int h, uint32_t rgb, float alpha);

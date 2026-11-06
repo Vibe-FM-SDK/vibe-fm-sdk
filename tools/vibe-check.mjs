@@ -416,6 +416,43 @@ if (exports.get('vibe_wasm_editor') === 'function') {
       check('Editor', !bb.length && nb <= 16, bb.length ? bb.slice(0, 3).join('; ') : `${nb} buttons`); }
   }
 }
+{ // SDK 23: the stage (a second, bigger picture the firmware draws) – size and manifest match, 60 frames under 10 ms each,
+  // its events taken, and the same sound whether the stage is drawn or not (a host may never show it)
+  const h = host(new Map(files)), x = h.inst.exports;
+  if (x.vibe_wasm_stage_info && x.vibe_wasm_stage_draw) {
+    try {
+      h.inAudio = false; x.vibe_wasm_init(SR);
+      const q = x.vibe_wasm_stage_info(), dv = new DataView(x.memory.buffer), w = dv.getUint16(q, true), hh = dv.getUint16(q + 2, true), want = dv.getUint8(q + 8), repl = dv.getUint8(q + 9) & 1;
+      if (want) {
+        const okSize = w >= 480 && hh >= 270 && w <= 1280 && hh <= 720;
+        check('Stage', okSize, okSize ? `${w} x ${hh}${repl ? ' – replaces the device (VIBE_STAGE_REPLACES)' : ''}` : `${w} x ${hh} – allowed: 480 x 270 up to 1280 x 720`);
+        const ms = manifest && manifest.stage;
+        check('Manifest', !!ms && ms.w === w && ms.h === hh, ms ? (ms.w === w && ms.h === hh ? '"stage" matches the firmware' : `"stage": ${ms.w} x ${ms.h}, the firmware asks for ${w} x ${hh}`) : '"stage" missing in firmware.json (the hosts show the badge from it)');
+        x.vibe_wasm_event(19, 8, 0, 0, 0);
+        let slow = 0, max = 0, p = 0;
+        for (let i = 0; i < 60; i++) {
+          if (i % 10 === 3) { const c = Math.floor(hh / 2) * 4096 + Math.floor(w / 2); x.vibe_wasm_event(19, 0, 1, c, 0); x.vibe_wasm_event(19, 1, 1, c + 20, 0); x.vibe_wasm_event(19, 2, 0, c + 20, 0); x.vibe_wasm_event(19, 3, 0, 1, 0); }
+          h.inAudio = true; x.vibe_wasm_audio(BLOCK, 0); h.inAudio = false;
+          x.vibe_wasm_draw(); const t0 = performance.now(); p = x.vibe_wasm_stage_draw(); const t = performance.now() - t0; max = Math.max(max, t); if (t > 10) slow++;
+        }
+        x.vibe_wasm_event(19, 9, 0, 0, 0);
+        check('Stage', !!p && !hunted, p ? 'drawn; click / drag / wheel / SHOWN / HIDDEN taken' : 'stage_draw returns no picture');
+        check('Stage', slow ? null : true, slow ? `${slow} of 60 frames over 10 ms (longest ${max.toFixed(1)} ms) – it will stutter in the browser` : `every frame under 10 ms (longest ${max.toFixed(1)} ms)`);
+        const stageRun = (draw) => { const h2 = host(new Map()), x2 = h2.inst.exports; try { h2.inAudio = false; x2.vibe_wasm_init(SR); const io = x2.vibe_wasm_io(), blocks = Math.ceil(4 * SR / BLOCK); let sum = 0, n = 0;
+          if (draw) x2.vibe_wasm_event(19, 8, 0, 0, 0);
+          for (let b = 0; b < blocks; b++) { const t = b * BLOCK / SR;
+            if (Math.abs(t - 2.5) < BLOCK / SR / 2) { x2.vibe_wasm_event(2, 12, 1, 0.8, 0); x2.vibe_wasm_event(5, 0, 0, 0, 0x90 | 60 << 8 | 100 << 16); }
+            if (Math.abs(t - 3.5) < BLOCK / SR / 2) { x2.vibe_wasm_event(2, 12, 0, 0, 0); x2.vibe_wasm_event(5, 0, 0, 0, 0x80 | 60 << 8); }
+            h2.inAudio = true; x2.vibe_wasm_audio(BLOCK, 0); h2.inAudio = false;
+            if (t >= 2.5) { const f = new Float32Array(x2.memory.buffer, io, 768); for (let i = 0; i < BLOCK; i++) { sum += f[256 + i] * f[256 + i]; n++; } }
+            if (b % 12 === 0) { x2.vibe_wasm_draw(); if (draw) x2.vibe_wasm_stage_draw(); } }
+          return Math.sqrt(sum / Math.max(1, n)); } catch (e) { return -1; } };
+        const a = stageRun(true), b = stageRun(false);
+        if (a > 0.001 || b > 0.001) check('Stage', Math.abs(a - b) <= Math.max(a, b) * 0.05, Math.abs(a - b) <= Math.max(a, b) * 0.05 ? 'sounds the same with and without the stage' : `sounds different with the stage (level ${a.toFixed(3)}) than without (${b.toFixed(3)}) – the stage is a picture only`);
+      } else if (manifest && manifest.stage) check('Manifest', false, '"stage" in firmware.json, but the firmware never calls vibe_stage');
+    } catch (e) { check('Stage', false, 'error: ' + String(e && e.message || e)); }
+  } else if (manifest && manifest.stage) check('Manifest', false, '"stage" in firmware.json, but the firmware has no stage (SDK 23)');
+}
 if (hunted) check('Robustness', false, hunted);
 report();
 

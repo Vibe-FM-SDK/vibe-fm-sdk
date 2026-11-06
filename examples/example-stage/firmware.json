@@ -1,0 +1,1 @@
+{"name": "EXAMPLE STAGE", "version": "1.0", "author": "zvenson", "description": "SDK 23 example: a tone, one knob – and a stage that replaces the device (a big dial, a meter)", "license": "Apache-2.0", "stage": {"w": 960, "h": 540}}
