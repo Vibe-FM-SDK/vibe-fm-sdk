@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 23       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 24       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -78,7 +78,11 @@
                                       23 (6.11.2026, docs/sdk-23-buehne.md): the stage – a second, bigger picture the firmware
                                       draws itself (vibe_stage / vibe_on_stage, VIBE_EV_STAGE = 19, vg_begin_size, VG_X2):
                                       turntables for VIBE DJ in the window and on play. Optional exports; the VIBE and every
-                                      older host show none – a firmware must be fully playable without it. */
+                                      older host show none – a firmware must be fully playable without it.
+                                      24 (7.11.2026, docs/sdk-24-link.md): Link – the page and what each encoder is now
+                                      (vibe_link_page / vibe_link_encoder, in vibe_on_draw), for a controller with a screen:
+                                      an FM-1 under VIBE FM Link shows it. Optional export; a firmware that says nothing
+                                      still shows its page (the caption of the soft key last pressed). */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -225,6 +229,13 @@ void vibe_led_button(int button, uint32_t rgb, float level);
 /* a caption for a button (the emulator writes it on the key; later the panel's small displays): up to 7 characters,
    "" = none. Meant for the soft keys F1-F6 and the six free keys right of ENTER. (SDK 2, 18.10.2026) */
 void vibe_label(int button, const char *text);
+/* SDK 24, Link (docs/sdk-24-link.md): say in vibe_on_draw, every frame, what the page and the encoders are now – a controller
+   with a screen shows it (the FM-1 under VIBE FM Link: KNOB 1-4 = VE_1..VE_4, ALGORITHM = VE_A, PRESETS = VE_B, SELECT =
+   VE_DATA). page up to 19 characters, name and value up to 11 (ASCII; "" = none). Cheap: the host sends only changes.
+   vibe_link_page("FILTER"); vibe_link_encoder(VE_1, "CUTOFF", "2.4k"); vibe_link_encoder(VE_2, "RESO", "35%");
+   An encoder not named this frame shows empty. Saying nothing at all: the page is the caption of the soft key last pressed. */
+void vibe_link_page(const char *name);
+void vibe_link_encoder(int encoder, const char *name, const char *value);
 void vibe_led_ring(int encoder, float value, int bipolar);              /* obsolete: the device has no LED rings
                                                                            (15.10.2026). Does nothing, kept so
                                                                            SDK-1 firmwares still build. */

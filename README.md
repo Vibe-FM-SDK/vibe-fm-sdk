@@ -241,6 +241,21 @@ A device may have more than 16 pads, up to 128, as a grid: the VIBE's 4 × 4, a 
 reach every pad. Nothing changes on the VIBE, in the plugin or in the emulator: there the grid is 4 × 4, as always.
 **[DEVICES.md](DEVICES.md)** has the details.
 
+## New in SDK 24 (7 November): Link – your page and knobs on the controller's screen
+
+A controller with a screen shows what is on its knobs right now: an M-VAVE FM-1 under **VIBE FM Link** 0.3
+(github.com/zvenson/vibe-link) shows your page on top and KNOB 1-4 with name and value, ALGORITHM and PRESETS below.
+Say it in `vibe_on_draw`, every frame, where you label your knobs anyway:
+
+```c
+vibe_link_page("FILTER ENV");
+vibe_link_encoder(VE_1, "ATTACK", "0.5ms");    /* VE_1..VE_4, VE_A, VE_B, VE_DATA; ASCII, name and value up to 11 */
+```
+
+The host sends only changes (a click on the host too) as SysEx `F0 7D 56 4C 01 … F7` to a device whose controller
+profile says `"display": "vibe-link"`. Saying nothing still works: the page is the caption of the soft key last
+pressed. The VIBE, the emulator and the plugin's window (0.7.7) send it.
+
 ## New in SDK 23 (6 November): the stage – your own layout, drawn by your firmware
 
 A firmware may draw a **second, bigger picture**: the stage (480 × 270 up to 1280 × 720, 960 × 540 recommended). The

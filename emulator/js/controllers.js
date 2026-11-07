@@ -117,12 +117,24 @@ export class Controllers {
       try { this.outPort.send(m.slice(1), at || undefined); } catch (e) { /* a bad message or the port gone */ }
     }
   }
+  // SDK 24 (Protokoll 15c): the firmware's page and encoders to every controller whose profile has a screen for them
+  // ("display": "vibe-link" – an FM-1 under VIBE FM Link): only changes; a device plugged in later gets the last one
+  linkShow(bytes) {
+    if (bytes) this.linkLast = bytes;
+    if (!this.access || !this.linkLast) return;
+    this.access.outputs.forEach((o) => {
+      const prof = this.profileOf(o.name); if (!prof || prof.display !== 'vibe-link') return;
+      if (!bytes && this.linkTo && this.linkTo.has(o.name)) return;   // (a re-wire: only to the new ones)
+      try { o.send(this.linkLast); (this.linkTo ||= new Set()).add(o.name); } catch (e) { /* no SysEx allowed, or the port gone */ }
+    });
+  }
   wire() {
     const names = [];
     this.lpOut = null;
     if (this.outName === undefined) { try { this.outName = localStorage.getItem('vibe.midiout') || ''; } catch (e) { this.outName = ''; } }
     this.pickOut();
     if (this.onOutPorts) this.onOutPorts(this.outPorts(), this.outName);
+    this.linkTo = null; this.linkShow(null);          // (SDK 24: the Link screen of a device just plugged in)
     this.access.outputs.forEach((o) => { if (isLaunchpad(o.name) && !/DAW/i.test(o.name)) this.lpOut = o; });
     let mpk = false; const all = [];
     const debug = /[?&]debug/.test(location.search);   // ?debug: every port and every message in the status line

@@ -33,6 +33,38 @@ void vibe_led_ring(int e, float v, int bipolar) { (void)e; (void)v; (void)bipola
 static char labels[VB_COUNT][8];
 void vibe_label(int b, const char *t) { if (b < 0 || b >= VB_COUNT) return; int i = 0; for (; t && t[i] && i < 7; i++) labels[b][i] = t[i]; labels[b][i] = 0; }
 
+/* ---- SDK 24 (7.11.2026, docs/sdk-24-link.md, Protokoll 15c): Link – what the page and the encoders are NOW, for a controller
+   with a screen (an FM-1 under VIBE FM Link). The firmware says it while drawing (vibe_on_draw), every frame, as with FOCUS;
+   the SDK keeps the last frame's and counts a change. A firmware that says nothing still has a page: the caption (vibe_label)
+   of the last of K1-K6 pressed, else the standard name (SOUND ENV LFO ARP FX SEQ). ASCII only reaches the controller. */
+typedef struct { uint32_t serial; char page[20]; char name[VE_COUNT][12]; char value[VE_COUNT][12]; } link_state;
+static link_state link_now, link_out;
+static int link_said, link_k = -1;
+static void link_copy(char *d, int n, const char *t) { int i = 0; for (; t && t[i] && i < n - 1; i++) d[i] = (t[i] >= 32 && t[i] < 127) ? t[i] : '?'; d[i] = 0; }
+void vibe_link_page(const char *name) { link_copy(link_now.page, sizeof link_now.page, name); link_said = 1; }
+void vibe_link_encoder(int encoder, const char *name, const char *value)
+{
+  if (encoder < 0 || encoder >= VE_COUNT) return;
+  link_copy(link_now.name[encoder], sizeof link_now.name[0], name); link_copy(link_now.value[encoder], sizeof link_now.value[0], value);
+  link_said = 1;
+}
+__attribute__((unused)) static int link_same(const link_state *a, const link_state *b)   /* (byte by byte: no libc here, the same on wasm and natively) */
+{ const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b; for (unsigned i = 0; i < sizeof *a; i++) if (x[i] != y[i]) return 0; return 1; }
+__attribute__((unused)) static void link_begin(void) { uint32_t s = link_now.serial; link_state z = {0}; link_now = z; link_now.serial = s; link_said = 0; }
+__attribute__((unused)) static void link_end(void)
+{
+  if (!link_now.page[0] && link_k >= 0) {        /* (nothing said: the soft key last pressed) */
+    static const char *const std_name[6] = { "SOUND", "ENV", "LFO", "ARP", "FX", "SEQ" };
+    link_copy(link_now.page, sizeof link_now.page, link_k == VB_HOME ? "CONTROLS" : labels[link_k][0] ? labels[link_k] : std_name[link_k - VB_K1]);
+  }
+  link_now.serial = link_out.serial;
+  if (!link_same(&link_now, &link_out)) { link_now.serial = link_out.serial + 1u; link_out = link_now; }
+}
+__attribute__((unused)) static void link_event(int type, int id, int down)  /* (the soft key last pressed: the page when the firmware says none) */
+{
+  if (type == VIBE_EV_BUTTON && down && ((id >= VB_K1 && id <= VB_K6) || id == VB_HOME)) link_k = id;
+}
+
 /* rear panel: the runtime reads what the firmware sets (CV/Gate out, input setup) and writes what comes in */
 typedef struct {
   float cv_out, gate_out;      /* firmware → jack */
@@ -964,6 +996,7 @@ static void vf_hold_check(void)
 VIBE_EXPORT(vibe_wasm_event) void vibe_wasm_event(int type, int id, int down, float value, int midi) {
   vibe_event e = { (uint8_t)type, (uint8_t)id, (uint8_t)down, { (uint8_t)(midi & 255), (uint8_t)((midi >> 8) & 255), (uint8_t)((midi >> 16) & 255) }, value };
   vf_hold_check();
+  link_event(type, id, down);                    /* (SDK 24) */
   if (sk_take(&e)) return;                       /* (SDK 12: SHIFT + DATA = the soft keys) */
   if (vf_md == VF_ON_HOLD && type == VIBE_EV_BUTTON && (id == VB_ENTER || id == VB_DATA_PUSH)) {
     if (down) { if (vf_hold < 0) { vf_hold = id; vf_hold_t = vibe_frames(); vf_fired = 0; } return; }
@@ -995,7 +1028,7 @@ VIBE_EXPORT(vibe_wasm_audio) void vibe_wasm_audio(int frames, int has_input) {
   }
 }
 VIBE_EXPORT(vibe_wasm_rear) void *vibe_wasm_rear(void) { return &rear; }
-VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); vg_begin(framebuffer); vibe_on_draw(framebuffer); vg_begin(framebuffer); sk_draw(); return framebuffer; }
+VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); link_begin(); vg_begin(framebuffer); vibe_on_draw(framebuffer); vg_begin(framebuffer); sk_draw(); link_end(); return framebuffer; }
 
 /* ---- SDK 23: the stage – a second, bigger picture the firmware draws itself (docs/sdk-23-buehne.md, Protokoll 9.5) ---- */
 static struct { uint16_t w, h; uint32_t background; uint8_t want, flags, pad[2]; } stage_info;   /* (the host reads it once after init) */
@@ -1015,6 +1048,7 @@ VIBE_EXPORT(vibe_wasm_stage_draw) uint16_t *vibe_wasm_stage_draw(void) {
 VIBE_EXPORT(vibe_wasm_leds) void *vibe_wasm_leds(void) { return &leds; }
 VIBE_EXPORT(vibe_wasm_pad_leds) void *vibe_wasm_pad_leds(void) { return &padx; }   /* SDK 20: n, rgb[128], lvl[128] (Protokoll 15b) */
 VIBE_EXPORT(vibe_wasm_labels) void *vibe_wasm_labels(void) { return labels; }   /* VB_COUNT x 8 chars */
+VIBE_EXPORT(vibe_wasm_link) void *vibe_wasm_link(void) { return &link_out; }   /* SDK 24: serial, page[20], name[7][12], value[7][12] */
 #endif /* VIBE_HOST_ONLY */
 
 /* ================================================================ 5. libc bits =================================== */

@@ -155,7 +155,7 @@ function onMessage(d) {
   }
   else if (d.t === 'eddesc') edDescribed(d);         // (the Editor in the browser, 31.10.)
   else if (d.t === 'curveR') { const r = edWait.get(d.id); edWait.delete(d.id); if (r) r(JSON.stringify(d.pts)); }
-  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds, d.padx); if (d.mixv) ctl.mixValues(d.mixv, d.leds); rear.show(d.rear); if (d.stage) stageFrame(new Uint16Array(d.stage)); }
+  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds, d.padx); if (d.mixv) ctl.mixValues(d.mixv, d.leds); if (d.link) ctl.linkShow(d.link); rear.show(d.rear); if (d.stage) stageFrame(new Uint16Array(d.stage)); }
   else if (d.t === 'mixer') ctl.setMixer(d.params);   // (SDK 11) the firmware's mix_* parameters
   else if (d.t === 'log') console.log('[firmware]', d.text);
   else if (d.t === 'midi') { ctl.midiOut(d.msgs, ctx); if (editor && editor.pageOn) editor.toPage({ midi: d.msgs.map((m) => m.slice(1)) }); }   // (SDK 9) the firmware's MIDI out – to the chosen Web MIDI port; (5.11.) and to its own editor page

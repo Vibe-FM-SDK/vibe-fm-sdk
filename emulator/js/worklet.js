@@ -249,7 +249,12 @@ class VibeHost extends AudioWorkletProcessor {
           const tr = labels ? [fb.buffer, leds.buffer, labels.buffer] : [fb.buffer, leds.buffer]; if (padx) tr.push(padx.buffer);
           let stage = null;                                // SDK 23: the stage, only while the page shows it
           if (this.stage && this.stageOn) { const sp = this.x.vibe_wasm_stage_draw(); if (sp) { stage = new Uint16Array(this.x.memory.buffer, sp, this.stage.w * this.stage.h).slice(); tr.push(stage.buffer); } }
-          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts, padx: padx && padx.buffer, stage: stage && stage.buffer }, tr);
+          let link = null;                                 // SDK 24 (Protokoll 15c): the page and the encoders, as SysEx for a controller with a
+          if (this.x.vibe_wasm_link) {                     // screen (an FM-1 under VIBE FM Link) – only when it changed
+            const q = this.x.vibe_wasm_link(), ser = new DataView(this.x.memory.buffer).getUint32(q, true);
+            if (ser !== this.linkSer) { this.linkSer = ser; link = linkSysex(new Uint8Array(this.x.memory.buffer, q + 4, 20 + 7 * 24)); }
+          }
+          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts, padx: padx && padx.buffer, stage: stage && stage.buffer, link }, tr);
         }
       } catch (e) { this.crash(e); }
     };
@@ -331,5 +336,15 @@ class VibeHost extends AudioWorkletProcessor {
     } catch (e) { this.crash(e); }
     return true;
   }
+}
+// SDK 24 (Protokoll 15c): the firmware's Link state (page[20], name[7][12], value[7][12]) as one SysEx:
+// F0 7D 56 4C 01, the page, then name and value of encoders 1-4, A, B, DATA, each ended by 00, F7 (7-bit ASCII only)
+function linkSysex(b) {
+  const out = [0xF0, 0x7D, 0x56, 0x4C, 0x01];
+  const str = (o, n) => { for (let i = 0; i < n && b[o + i]; i++) out.push(b[o + i] & 0x7F); out.push(0); };
+  str(0, 20);
+  for (let e = 0; e < 7; e++) { str(20 + e * 12, 12); str(20 + 84 + e * 12, 12); }
+  out.push(0xF7);
+  return out;
 }
 registerProcessor('vibe-host', VibeHost);
