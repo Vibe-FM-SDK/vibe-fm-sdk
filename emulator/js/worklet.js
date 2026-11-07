@@ -229,6 +229,7 @@ class VibeHost extends AudioWorkletProcessor {
           const b = d.bytes, x = this.x;
           if (x.vibe_wasm_editor_inbox && x.vibe_wasm_editor_data_in && b.length && b.length <= 4096) { new Uint8Array(x.memory.buffer, x.vibe_wasm_editor_inbox(), b.length).set(b); x.vibe_wasm_editor_data_in(b.length); }
         }
+        else if (d.t === 'scrwant') this.scrWant = true;   // (SDK 25) the page sent the last picture to the FM-1: the next one, when it changed
         else if (d.t === 'draw') {
           this.lastDraw = currentTime; this.mediaEvents();
           const fbp = this.x.vibe_wasm_draw();
@@ -254,7 +255,13 @@ class VibeHost extends AudioWorkletProcessor {
             const q = this.x.vibe_wasm_link(), ser = new DataView(this.x.memory.buffer).getUint32(q, true);
             if (ser !== this.linkSer) { this.linkSer = ser; link = linkSysex(new Uint8Array(this.x.memory.buffer, q + 4, 20 + 7 * 24)); }
           }
-          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts, padx: padx && padx.buffer, stage: stage && stage.buffer, link }, tr);
+          let scr = null, scrOn = false;                   // SDK 25 (Protokoll 15d): the firmware's 240 x 240 picture (a converted FM-1 firmware) for
+          if (this.x.vibe_wasm_link_screen) {              // an FM-1 under VIBE FM Link 0.4 – copied only when the page asks for the next one and it changed
+            const q = this.x.vibe_wasm_link_screen(), dv = new DataView(this.x.memory.buffer), ser = dv.getUint32(q, true), px = dv.getUint32(q + 4, true);
+            scrOn = px !== 0;
+            if (px && this.scrWant && ser !== this.scrSer) { this.scrSer = ser; this.scrWant = false; scr = new Uint16Array(this.x.memory.buffer, px, 240 * 240).slice(); tr.push(scr.buffer); }
+          }
+          send({ t: 'frame', fb: fb.buffer, leds: leds.buffer, rear, labels: labels && labels.buffer, mixv, pv, posts, padx: padx && padx.buffer, stage: stage && stage.buffer, link, scr: scr && scr.buffer, scrOn }, tr);
         }
       } catch (e) { this.crash(e); }
     };

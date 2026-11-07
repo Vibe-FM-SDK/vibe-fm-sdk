@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 24       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 25       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -82,7 +82,10 @@
                                       24 (7.11.2026, docs/sdk-24-link.md): Link – the page and what each encoder is now
                                       (vibe_link_page / vibe_link_encoder, in vibe_on_draw), for a controller with a screen:
                                       an FM-1 under VIBE FM Link shows it. Optional export; a firmware that says nothing
-                                      still shows its page (the caption of the soft key last pressed). */
+                                      still shows its page (the caption of the soft key last pressed).
+                                      25 (7.11.2026, docs/sdk-25-link-screen.md): Link's screen – a firmware made for a
+                                      240 x 240 screen (a converted FM-1 firmware: tools/fm1 does it) hands its picture
+                                      (vibe_link_screen); an FM-1 under VIBE FM Link 0.4 shows it as it is. Optional export. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -236,6 +239,11 @@ void vibe_label(int button, const char *text);
    An encoder not named this frame shows empty. Saying nothing at all: the page is the caption of the soft key last pressed. */
 void vibe_link_page(const char *name);
 void vibe_link_encoder(int encoder, const char *name, const char *value);
+/* SDK 25, Link's screen (docs/sdk-25-link-screen.md): a 240 x 240 picture (RGB565, row by row) for a controller with
+   such a screen – the FM-1 under VIBE FM Link 0.4 shows it instead of the page and the encoders. Call it in vibe_on_draw
+   when the picture changed (or every frame: the host sends only the rows that changed); px must stay valid (static).
+   NULL = none any more (back to the page and the encoders). A converted FM-1 firmware does it by itself (tools/fm1). */
+void vibe_link_screen(const uint16_t *px);
 void vibe_led_ring(int encoder, float value, int bipolar);              /* obsolete: the device has no LED rings
                                                                            (15.10.2026). Does nothing, kept so
                                                                            SDK-1 firmwares still build. */

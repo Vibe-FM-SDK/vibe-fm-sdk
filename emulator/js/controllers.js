@@ -92,6 +92,7 @@ export class Controllers {
     try { this.access = await navigator.requestMIDIAccess({ sysex: true }); }
     catch (e) { try { this.access = await navigator.requestMIDIAccess(); } catch (e2) { this.status('MIDI not allowed', true); return false; } }
     this.access.onstatechange = () => this.wire();
+    setInterval(() => this.scrPump(), 50);          // (SDK 25: Link's answers late, the keep-alive)
     this.wire();
     return true;
   }
@@ -124,9 +125,46 @@ export class Controllers {
     if (!this.access || !this.linkLast) return;
     this.access.outputs.forEach((o) => {
       const prof = this.profileOf(o.name); if (!prof || prof.display !== 'vibe-link') return;
+      const m = this.scr && this.scr.get(o.name); if (this.scrOn && m && m.ok && !m.dead) return;   // (SDK 25: it shows the picture)
       if (!bytes && this.linkTo && this.linkTo.has(o.name)) return;   // (a re-wire: only to the new ones)
       try { o.send(this.linkLast); (this.linkTo ||= new Set()).add(o.name); } catch (e) { /* no SysEx allowed, or the port gone */ }
     });
+  }
+  // SDK 25 (Protokoll 15d): the firmware's own 240 x 240 picture (a converted FM-1 firmware) to an FM-1 under VIBE FM Link
+  // 0.4, which shows it as it is – only the rows that changed, run-length coded, one message at a time: the FM-1 answers
+  // each (F0 7D 56 4C 03 F7) once drawn. A device that never answers (Link 0.3) keeps the page and the knobs (linkShow).
+  // on: the firmware has a picture; px: a new one (the worklet sends one when asked – wantScreen – and it changed)
+  linkScreen(on, px) {
+    if (px) { this.scrLast = px; this.scrAsked = false; }
+    if (this.scrOn !== on) { this.scrOn = on; this.scr = new Map(); if (!on) { this.linkTo = null; this.linkShow(null); } }   // (none any more: the page again)
+    this.scrPump();
+  }
+  scrPump() {
+    if (!this.access || !this.scrOn) return;
+    const now = performance.now(); let idle = true, any = false;
+    this.scr ||= new Map();
+    this.access.outputs.forEach((o) => {
+      const prof = this.profileOf(o.name); if (!prof || prof.display !== 'vibe-link') return;
+      let m = this.scr.get(o.name); if (!m) this.scr.set(o.name, m = { sent: null, q: [], wait: 0, last: 0, miss: 0, ok: false, dead: false });
+      if (m.dead) return;
+      any = true;
+      if (m.wait) {
+        if (now - m.wait < 250) { idle = false; return; }
+        m.wait = 0; m.q = []; m.sent = null;            // (no answer: the whole picture again)
+        if (!m.ok && ++m.miss >= 3) { m.dead = true; if (this.linkTo) this.linkTo.delete(o.name); this.linkShow(null); return; }   // (an older Link)
+      }
+      if (!m.q.length && this.scrLast && m.sent !== this.scrLast) { m.q = linkScreenDiff(m.sent, this.scrLast); m.sent = this.scrLast; }
+      if (!m.q.length && now - m.last > 1000) m.q.push(new Uint8Array([0xF0, 0x7D, 0x56, 0x4C, 0x02, 0, 0, 0, 0xF7]));   // (still here: the FM-1 keeps it)
+      if (m.q.length) { try { o.send(m.q.shift()); m.wait = m.last = now; idle = false; } catch (e) { m.dead = true; } }
+    });
+    if (any && idle && !this.scrAsked && this.wantScreen) { this.scrAsked = true; this.wantScreen(); }   // (no FM-1 to show it: the worklet copies nothing)
+  }
+  scrAck(dev) {                                     // (its answer: by the input's name, else the one waiting)
+    if (!this.scr) return;
+    let m = this.scr.get(dev);
+    if (!m || !m.wait) for (const v of this.scr.values()) if (v.wait) { m = v; break; }
+    if (!m) return;
+    m.wait = 0; m.ok = true; m.miss = 0; this.scrPump();
   }
   wire() {
     const names = [];
@@ -134,7 +172,7 @@ export class Controllers {
     if (this.outName === undefined) { try { this.outName = localStorage.getItem('vibe.midiout') || ''; } catch (e) { this.outName = ''; } }
     this.pickOut();
     if (this.onOutPorts) this.onOutPorts(this.outPorts(), this.outName);
-    this.linkTo = null; this.linkShow(null);          // (SDK 24: the Link screen of a device just plugged in)
+    this.scr = new Map(); this.linkTo = null; this.linkShow(null);   // (SDK 24/25: the Link screen of a device just plugged in)
     this.access.outputs.forEach((o) => { if (isLaunchpad(o.name) && !/DAW/i.test(o.name)) this.lpOut = o; });
     let mpk = false; const all = [];
     const debug = /[?&]debug/.test(location.search);   // ?debug: every port and every message in the status line
@@ -228,7 +266,8 @@ export class Controllers {
   generic(dev, d) {
     // SDK 15: a SysEx from a MIDI input (an FM-1's patch dump) – to the firmware as VIBE_EV_SYSEX (host.js onSysex), in the
     // browser and in the plugin (0.7.2: most DAWs hand a plugin no SysEx, its window's own ports do); never a controller's
-    if (d[0] === 0xF0) { if (dev !== 'DAW' && this.onSysex) this.onSysex(d); return; }
+    if (d[0] === 0xF0) { if (d[1] === 0x7D && d[2] === 0x56 && d[3] === 0x4C && d[4] === 0x03) { this.scrAck(dev); return; }   // (SDK 25: Link drew it)
+      if (dev !== 'DAW' && this.onSysex) this.onSysex(d); return; }
     const st = d[0] & 0xF0, ch = d[0] & 15, n = d[1], v = d[2] ?? 0;
     // the VIBE FM Plugin (0.7.0): the controller plays into the DAW, the plugin applies its profile itself (vibe_controller.cpp,
     // window open or closed); here only Setup / Learn, from the DAW's MIDI the plugin hands over ("DAW")
@@ -509,4 +548,35 @@ export class Controllers {
   // the VIBE FM Plugin: nothing held back from the DAW's MIDI any more – the plugin applies the profile itself (0.7.0;
   // before, the window mapped the controller and the plugin dropped those CCs)
   claim() { if (this.plugin && window.vibe_midi_claim) window.vibe_midi_claim([]); }
+}
+
+// SDK 25 (Protokoll 15d): the messages that bring an FM-1 under VIBE FM Link 0.4 from picture prev (null: nothing yet) to
+// cur (240 x 240 RGB565): F0 7D 56 4C 02, the first pixel y * 240 + x in 3 x 7 bits, then t 0..63 = t + 1 pixels of one
+// colour, t 64..127 = t - 63 pixels one by one, a colour in 3 bytes (2 + 7 + 7 bits), F7; at most ~4 KB a message
+function linkScreenDiff(prev, cur) {
+  const W = 240, MAXP = 4000, out = [];
+  const col = (b, c) => { b.push(c >> 14, (c >> 7) & 127, c & 127); };
+  const span = (s, e) => {
+    let i = s;
+    while (i < e) {
+      const b = [0xF0, 0x7D, 0x56, 0x4C, 0x02, (i >> 14) & 127, (i >> 7) & 127, i & 127];
+      while (i < e) {
+        let r = 1; while (i + r < e && r < 64 && cur[i + r] === cur[i]) r++;
+        if (r >= 2) { if (b.length + 5 > MAXP) break; b.push(r - 1); col(b, cur[i]); i += r; continue; }
+        let j = i; while (j < e && j - i < 64 && !(j + 1 < e && cur[j + 1] === cur[j])) j++;
+        const n = Math.min(j - i, Math.floor((MAXP - b.length - 2) / 3)); if (n <= 0) break;
+        b.push(63 + n); for (let k = 0; k < n; k++) col(b, cur[i + k]); i += n;
+      }
+      b.push(0xF7); out.push(Uint8Array.from(b));
+    }
+  };
+  const same = (y) => { if (!prev) return false; for (let x = y * W, e = x + W; x < e; x++) if (prev[x] !== cur[x]) return false; return true; };
+  for (let y = 0; y < W;) {
+    if (same(y)) { y++; continue; }
+    let y2 = y; while (y2 + 1 < W && !same(y2 + 1)) y2++;
+    let s = y * W, e = (y2 + 1) * W;
+    if (prev) { while (prev[s] === cur[s]) s++; while (prev[e - 1] === cur[e - 1]) e--; }
+    span(s, e); y = y2 + 1;
+  }
+  return out;
 }

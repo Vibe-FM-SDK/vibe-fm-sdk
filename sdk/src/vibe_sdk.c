@@ -48,6 +48,8 @@ void vibe_link_encoder(int encoder, const char *name, const char *value)
   link_copy(link_now.name[encoder], sizeof link_now.name[0], name); link_copy(link_now.value[encoder], sizeof link_now.value[0], value);
   link_said = 1;
 }
+static struct { uint32_t serial; uint32_t px; } link_scr;   /* SDK 25: a 240 x 240 picture (its address in the firmware's memory) */
+void vibe_link_screen(const uint16_t *px) { link_scr.px = (uint32_t)(uintptr_t)px; link_scr.serial++; }
 __attribute__((unused)) static int link_same(const link_state *a, const link_state *b)   /* (byte by byte: no libc here, the same on wasm and natively) */
 { const unsigned char *x = (const unsigned char *)a, *y = (const unsigned char *)b; for (unsigned i = 0; i < sizeof *a; i++) if (x[i] != y[i]) return 0; return 1; }
 __attribute__((unused)) static void link_begin(void) { uint32_t s = link_now.serial; link_state z = {0}; link_now = z; link_now.serial = s; link_said = 0; }
@@ -1049,6 +1051,7 @@ VIBE_EXPORT(vibe_wasm_leds) void *vibe_wasm_leds(void) { return &leds; }
 VIBE_EXPORT(vibe_wasm_pad_leds) void *vibe_wasm_pad_leds(void) { return &padx; }   /* SDK 20: n, rgb[128], lvl[128] (Protokoll 15b) */
 VIBE_EXPORT(vibe_wasm_labels) void *vibe_wasm_labels(void) { return labels; }   /* VB_COUNT x 8 chars */
 VIBE_EXPORT(vibe_wasm_link) void *vibe_wasm_link(void) { return &link_out; }   /* SDK 24: serial, page[20], name[7][12], value[7][12] */
+VIBE_EXPORT(vibe_wasm_link_screen) void *vibe_wasm_link_screen(void) { return &link_scr; }   /* SDK 25: serial (+1 a change), px (0: none) */
 #endif /* VIBE_HOST_ONLY */
 
 /* ================================================================ 5. libc bits =================================== */

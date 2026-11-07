@@ -241,6 +241,21 @@ A device may have more than 16 pads, up to 128, as a grid: the VIBE's 4 × 4, a 
 reach every pad. Nothing changes on the VIBE, in the plugin or in the emulator: there the grid is 4 × 4, as always.
 **[DEVICES.md](DEVICES.md)** has the details.
 
+## New in SDK 25 (7 November): Link – a 240 x 240 picture of your own on the FM-1
+
+Made your firmware for a 240 x 240 screen (or converting an FM-1 firmware)? Hand that picture over and an FM-1 under
+**VIBE FM Link 0.4** shows it as it is, instead of the page and the knobs:
+
+```c
+static uint16_t screen[240 * 240];               /* RGB565, row by row */
+/* in vibe_on_draw, when it changed (or every frame: the host sends only what changed) */
+vibe_link_screen(screen);                        /* NULL: none any more – the page and the knobs again */
+```
+
+The hosts send only the changed parts, run-length coded, one piece at a time; the FM-1 answers each (~75 KB/s over
+USB-MIDI). Converted FM-1 firmwares do it by themselves. The emulator sends it to an FM-1 under VIBE FM Link with SysEx
+allowed. An FM-1 with Link 0.3 keeps getting the page and the knobs.
+
 ## New in SDK 24 (7 November): Link – your page and knobs on the controller's screen
 
 A controller with a screen shows what is on its knobs right now: an M-VAVE FM-1 under **VIBE FM Link** 0.3

@@ -79,6 +79,7 @@ async function loadLibrary() {
 // the on-screen pads are pads 0-15 then (the grid's top two rows), the Launchpad's top row and right column stay VIBE buttons
 let lpGrid = false; try { lpGrid = localStorage.getItem('vibe.lpgrid') === '1'; } catch (e) { /* private mode */ }
 ctl.lpGrid = lpGrid;
+ctl.wantScreen = () => { if (node && running) node.port.postMessage({ t: 'scrwant' }); };   // (SDK 25: the next picture for an FM-1 under VIBE FM Link)
 ctl.onWire = () => { if (!PLUGIN) ctlRefresh().catch(() => {}); };   // (the menu shows the devices and their profiles)
 function deviceBytes() {                             // Protokoll 15b, 52 bytes (sdk/include/vibe.h vibe_device_info)
   if (!lpGrid || PLUGIN) return undefined;
@@ -155,7 +156,7 @@ function onMessage(d) {
   }
   else if (d.t === 'eddesc') edDescribed(d);         // (the Editor in the browser, 31.10.)
   else if (d.t === 'curveR') { const r = edWait.get(d.id); edWait.delete(d.id); if (r) r(JSON.stringify(d.pts)); }
-  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds, d.padx); if (d.mixv) ctl.mixValues(d.mixv, d.leds); if (d.link) ctl.linkShow(d.link); rear.show(d.rear); if (d.stage) stageFrame(new Uint16Array(d.stage)); }
+  else if (d.t === 'frame') { if (d.pv) edVals = d.pv; if (d.posts) edPosts.push(...d.posts); framePending = false; { const fb = new Uint16Array(d.fb); lastFb = fb; panel.showFrame(fb); if (editor && editor.open) editor.frame(fb); } panel.showLeds(d.leds); panel.showLabels(d.labels); ctl.lights(d.leds, d.padx); if (d.mixv) ctl.mixValues(d.mixv, d.leds); if (d.link) ctl.linkShow(d.link); ctl.linkScreen(!!d.scrOn, d.scr ? new Uint16Array(d.scr) : null); rear.show(d.rear); if (d.stage) stageFrame(new Uint16Array(d.stage)); }
   else if (d.t === 'mixer') ctl.setMixer(d.params);   // (SDK 11) the firmware's mix_* parameters
   else if (d.t === 'log') console.log('[firmware]', d.text);
   else if (d.t === 'midi') { ctl.midiOut(d.msgs, ctx); if (editor && editor.pageOn) editor.toPage({ midi: d.msgs.map((m) => m.slice(1)) }); }   // (SDK 9) the firmware's MIDI out – to the chosen Web MIDI port; (5.11.) and to its own editor page
@@ -1277,6 +1278,18 @@ async function pluginMode() {
   const ownPorts = pluginMidi(); ctl.plugin = true;   // (the DAW plays the notes: the window only learns)
   ctl.connect().then((ok) => {
     if (ok && ownPorts) $('#tb-midi').classList.add('on');
+    // (0.7.8) SDK 24 / 25: the page and the knobs – and a converted FM-1 firmware's own picture – for an FM-1 under VIBE FM
+    // Link, from the plugin (it reads them after each draw) to the window's MIDI ports (controllers.js linkShow / linkScreen)
+    if (ok && window.vibe_link_take) {
+      let want = false; ctl.wantScreen = () => { want = true; };
+      const un = (s) => { const b = atob(s), u = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) u[i] = b.charCodeAt(i); return u; };
+      setInterval(async () => {
+        const w = want; want = false;               // (an ask while this one is out goes with the next)
+        let r; try { r = JSON.parse(await window.vibe_link_take(w)); } catch (e) { want ||= w; return; }
+        if (r.l) ctl.linkShow(Array.from(un(r.l)));
+        ctl.linkScreen(!!r.on, r.s ? new Uint16Array(un(r.s).buffer) : null);
+      }, 40);
+    }
     if (!ok || !window.vibe_sysex_take) return;
     // (0.7.2) SDK 15: the firmware's SysEx out to the window's MIDI ports (#midiout: one, or auto = every two-way device)
     outSel.style.display = '';
