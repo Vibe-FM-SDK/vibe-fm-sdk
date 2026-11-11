@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 25       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 26       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -85,7 +85,11 @@
                                       still shows its page (the caption of the soft key last pressed).
                                       25 (7.11.2026, docs/sdk-25-link-screen.md): Link's screen – a firmware made for a
                                       240 x 240 screen (a converted FM-1 firmware: tools/fm1 does it) hands its picture
-                                      (vibe_link_screen); an FM-1 under VIBE FM Link 0.4 shows it as it is. Optional export. */
+                                      (vibe_link_screen); an FM-1 under VIBE FM Link 0.4 shows it as it is. Optional export.
+                                      26 (9.11.2026, docs/sdk-26-ein-ausgaenge.md): more inputs and outputs – up to 16 of
+                                      each (an audio interface with 8 ins, a mixer's returns): vibe_input_count,
+                                      vibe_output_count, vibe_input(2..15), vibe_output(n), their names. Optional export
+                                      (vibe_wasm_ports, Protokoll 8.2); a host without it: 2 and 2, as before. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -401,7 +405,28 @@ enum vibe_input_mode { VIBE_IN_LINE, VIBE_IN_MIC, VIBE_IN_HIZ };
 void vibe_input_mode(int input, int mode);                             /* input 0/1, enum vibe_input_mode */
 void vibe_input_link(int stereo);                                      /* 1 = IN 1 + IN 2 as one stereo input */
 const float *vibe_input(int input);                                    /* inside vibe_on_audio: this block of IN 1 (0)
-                                                                           or IN 2 (1), NULL while off */
+                                                                           or IN 2 (1), NULL while off – SDK 26: up to
+                                                                           IN 16 (15), see below */
+
+/* ---- more inputs and outputs (SDK 26, docs/sdk-26-ein-ausgaenge.md) --------------------------------------------------
+   A host may have more than IN 1/IN 2 and OUT L/R: an audio interface with 8 inputs, 4 outputs for a mixer. IN 1/IN 2
+   stay what they are (the VIBE's rear jacks, vibe_input_mode / _link apply to them only); IN 3..IN 16 and OUT 3..OUT 16
+   come after them, in the host's order. Numbers here count from 0: vibe_input(2) is IN 3, vibe_output(0) is OUT L.
+   - vibe_input_count() / vibe_output_count(): how many this host has, 2..VIBE_IO_MAX. A host before SDK 26 (or one
+     with nothing more): 2 and 2. They may change while running (an interface plugged in): ask when you need them, not
+     only in vibe_on_init.
+   - vibe_input(n): as for IN 1/IN 2 – this block's samples, NULL while that input is off. VIBE_REQ_AUDIO_INPUT switches
+     on all of them.
+   - vibe_output(n), inside vibe_on_audio: the buffer of OUT n+1 for this block (`frames` long). 0 and 1 are the l / r
+     vibe_on_audio got; 2.. are zeroed before each block – write what you want there, an output you never ask for stays
+     silent. NULL past vibe_output_count(). Keep the main mix on OUT L/R: a host with 2 outputs plays only those.
+   - vibe_input_name(n) / vibe_output_name(n): the host's name ("UMC1820 IN 3", "OUT 3/4"), "" when it gives none. */
+#define VIBE_IO_MAX 16
+int   vibe_input_count(void);
+int   vibe_output_count(void);
+float *vibe_output(int output);
+const char *vibe_input_name(int input);
+const char *vibe_output_name(int output);
 
 /* CV/Gate (rear, 3.5 mm): CV OUT, GATE OUT, CV IN, CLK IN (CLK IN arrives as VIBE_EV_CLOCK) */
 void  vibe_cv_out(float volts);                                        /* 0..+5 V, 1 V/oct */
@@ -545,6 +570,9 @@ typedef struct {
 } vibe_stream_info;
 const vibe_stream_info *vibe_stream(void);
 void vibe_areas(int count);                            /* SDK 12: the firmware has its own n areas: VIBE_EV_AREA instead of the keys */
+void vibe_extras_own(int on);                          /* SDK 19 extras (8.11.2026): 1 = the firmware handles a device's extra buttons
+                                                          VB_X1 .. itself. Without it a host makes X1-X4 into pads 1-4 (down / up, as
+                                                          hit) and drops the rest – so encoder pushes do something in every firmware */
 int vibe_stream_read(float *l, float *r, int max);     /* frames read (0 = none waiting: play silence) */
 
 /* RGB565 helpers */

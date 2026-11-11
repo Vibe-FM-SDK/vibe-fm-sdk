@@ -1,7 +1,7 @@
-# VIBE FM SDK – Early Access
+# VIBE FM SDK
 
-**Build your own native VIBE FM synth with this – in plain C, as one file. It runs natively on the VIBE FM hardware,
-and through VIBE FM VST as a plugin in your DAW.**
+**Write a Vibe – or port your FM-1 firmware – in plain C, as one file. It runs in your DAW as a plugin, in the browser,
+as a standalone app (iOS coming), and natively on the VIBE FM hardware.**
 
 You write a synth (or a sampler, a sequencer, an effect…) in plain C against one small API. It compiles to a single
 WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your DAW through VIBE FM VST, in the
@@ -22,8 +22,11 @@ WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your
   anyone drops it into the official VIBE FM VST and it plays, in the browser and on the hardware too, unchanged. Want
   it on The Firmware Hub as well? Send it to us.
 
-> **Early Access – thank you for being one of the first.** This is a preview for a handful of developers. Please don't
-> share the SDK or post it publicly yet. Everything here is still allowed to change. Tell us what is missing, unclear or
+> **Start here: the VIBE FM Lab – <https://thefirmwarehub.com/lab/>** – your first Vibe in three steps, and these docs in
+> a nicer look. **The VIBE Box Challenge is open:** build the coolest Vibe by 15 December and win a VIBE Box prototype –
+> the rules: <https://thefirmwarehub.com/lab/rules/>.
+>
+> Early days: the SDK still grows, and new things are added, never taken away. Tell us what is missing, unclear or
 > broken: open an **issue** in this repository, or mail **zven@thefirmwarehub.com**
 
 ---
@@ -33,8 +36,8 @@ WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your
 | | |
 |---|---|
 | **Zig 0.13.0** | its clang compiles C to WebAssembly – nothing else to install. Download: <https://ziglang.org/download/#release-0.13.0>, unpack, put `zig` on your PATH (or set `ZIG=/path/to/zig`). |
-| **VIBE FM VST 0.4** | the host you test in, free: <https://thefirmwarehub.com/convert> (macOS, Windows, Linux). 0.4 plays MIDI out, the Cue output and your Editor layout; an SDK-9 firmware also runs in 0.3, without them. |
-| **The native firmwares** *(to look at)* | what this SDK makes: OberVave 3 (VOX coming soon) – <https://thefirmwarehub.com/native/>. OberVave 3 comes with VIBE FM VST, the Editor included. |
+| **A host to play it in** | **the Playground** in your browser, nothing to install: <https://play.thefirmwarehub.com/> – drop your `.wasm` onto the device. Or **VIBE FM VST** (0.8, free): VST3 / AU / CLAP in your DAW, and a standalone app on macOS and Windows – <https://thefirmwarehub.com/convert/#plugdl>. |
+| **The native firmwares** *(to look at)* | what this SDK makes: OberVave 3, VIBE DJ, S1VAVE and more – <https://thefirmwarehub.com/platform/#instruments>. OberVave 3 comes with VIBE FM VST, the Editor included. |
 | a shell | macOS / Linux: the terminal. Windows: Git Bash or WSL (`tools/build.sh` is a plain `sh` script). |
 | Node.js 18+ *(optional)* | for `tools/vibe-check.mjs` and `tools/wasmtest.mjs` (testing without a DAW). |
 | Python 3 *(optional)* | for `tools/emulator.py` – the device in your browser (Chrome or Edge). |
@@ -241,6 +244,26 @@ A device may have more than 16 pads, up to 128, as a grid: the VIBE's 4 × 4, a 
 reach every pad. Nothing changes on the VIBE, in the plugin or in the emulator: there the grid is 4 × 4, as always.
 **[DEVICES.md](DEVICES.md)** has the details.
 
+## New in SDK 26 (9 November): up to 16 inputs and 16 outputs
+
+A host may have more than IN 1 / IN 2 and OUT L / R – an audio interface with 8 inputs, outputs for a mixer. SDK 26
+gives your firmware up to **16 of each**. `vibe_input_count()` / `vibe_output_count()` say how many this host has (2 on
+an older host), `vibe_input(n)` reads IN n+1 as before, `vibe_output(n)` is the buffer of OUT n+1 inside
+`vibe_on_audio`, `vibe_input_name(n)` / `vibe_output_name(n)` the host's names ("UMC1820 IN 3").
+
+```c
+void vibe_on_audio(const float *in, float *l, float *r, int frames) {
+  for (int k = 2; k < vibe_input_count(); k++) { const float *x = vibe_input(k); if (x) { /* IN k+1 */ } }
+  float *o3 = vibe_output(2);                 /* OUT 3, NULL when the host has only two */
+  /* … the main mix always goes to l / r: a host with two outputs plays only those */
+}
+```
+
+Which hosts have more: the VIBE's own Linux host (as many inputs as the audio interface has; outputs with `--outs N`).
+The Playground and VIBE FM VST still have 2 and 2 – your firmware runs there unchanged. Also new in `vibe.h`:
+`vibe_extras_own(1)` – your firmware handles a device's extra buttons (`VB_X1` …, encoder pushes) itself; without it a
+host turns X1–X4 into pads 1–4.
+
 ## New in SDK 25 (7 November): Link – a 240 x 240 picture of your own on the FM-1
 
 Made your firmware for a 240 x 240 screen (or converting an FM-1 firmware)? Hand that picture over and an FM-1 under
@@ -390,13 +413,14 @@ always added, never taken away).
 
 - **The VIBE FM hardware:** your `.wasm` runs there unchanged – 25 keys, 16 pads, encoders, a 4.0" colour display, audio
   and CV in/out.
-- **A place on thefirmwarehub.com** for what you build.
+- **Your place on thefirmwarehub.com:** submit your Vibe at <https://thefirmwarehub.com/submit/?device=vibe>.
 - **The VIBE FM Protocol specification** in English (the rules behind `vibe-check`, the two-flows mode).
 - A **device CPU budget** in `vibe-check`, measured on the hardware.
 
-Not in SDK 13 yet – tell us if you need one of these first:
+Not there yet – tell us if you need one of these first:
 
-- **More than one stereo output to the DAW** (each track on its own channel; today: stereo out, dual mono and the Cue).
+- **More than one stereo output in the DAW and the browser** (SDK 26 has the outputs; VIBE FM VST and the Playground
+  still play OUT L / R, dual mono and the Cue).
 - **Reporting your own latency** to the DAW (a look-ahead limiter, for instance).
 - **Audio input** works (`vibe_request(VIBE_REQ_AUDIO_INPUT)`, then `in` / `vibe_input`): in the plugin it is the
   instrument's sidechain input – how you route a track into an instrument differs per DAW. An effect variant that sits

@@ -3,7 +3,7 @@
 How to **play** the VIBE FM: in the emulator on your computer (`python3 tools/emulator.py`), in VIBE FM VST, and on
 the hardware to come. For **building** firmwares, see `README.md` and `AGENTS.md`.
 
-Early access, 28.10.2026. Everything here runs in the emulator today. Things that only the hardware will have are
+Status 11.11.2026 (SDK 26). Everything here runs in the emulator today. Things that only the hardware will have are
 marked *(hardware)*.
 
 ---

@@ -82,7 +82,28 @@ void  vibe_gate_out(int on) { rear.gate_out = on ? 5.0f : 0.0f; }
 float vibe_cv_in(void) { return rear.cv_in; }
 void  vibe_input_mode(int i, int mode) { if (i >= 0 && i < VIBE_INPUTS && mode >= VIBE_IN_LINE && mode <= VIBE_IN_HIZ) rear.in_mode[i] = (float)mode; }
 void  vibe_input_link(int stereo) { rear.in_link = stereo ? 1.0f : 0.0f; }
-const float *vibe_input(int i) { return i >= 0 && i < VIBE_INPUTS ? inputs[i] : 0; }
+/* SDK 26: more inputs and outputs (Protokoll 8.2). The host fills the counts and names (any time, before the first
+   block at the latest) and IN 3.. before each block (has_input bit n = IN n+1); it plays OUT 3.. after it.
+   Layout (wasm32): magic @0 · host_in @4 · host_out @8 (host writes; 0 = never: 2) · out_used @12 (bit n = OUT n+1 written
+   this block) · in_name @16, out_name @272 (16 x 16 bytes each, host writes) · in @528: 14 x 256 f32 (IN 3..16) ·
+   out @14864: 14 x 256 f32 (OUT 3..16) – 29200 bytes */
+#define PORTS_MAGIC 0x53545250u                  /* "PRTS" */
+static struct { uint32_t magic; int32_t host_in, host_out; volatile uint32_t out_used; char in_name[VIBE_IO_MAX][16], out_name[VIBE_IO_MAX][16];
+                float in[VIBE_IO_MAX - 2][VIBE_MAX_BLOCK], out[VIBE_IO_MAX - 2][VIBE_MAX_BLOCK]; } ports = { PORTS_MAGIC, 0, 0, 0, {{0}}, {{0}}, {{0}}, {{0}} };
+static const float *inputs_x[VIBE_IO_MAX];      /* IN 3.. of this block (0, 1 unused: inputs[]) */
+static float *outs_lr[2];                        /* OUT L/R of this block */
+const float *vibe_input(int i) { return i >= 0 && i < VIBE_INPUTS ? inputs[i] : i >= VIBE_INPUTS && i < VIBE_IO_MAX ? inputs_x[i] : 0; }
+int vibe_input_count(void) { int n = ports.host_in; return n >= 2 && n <= VIBE_IO_MAX ? n : 2; }
+int vibe_output_count(void) { int n = ports.host_out; return n >= 2 && n <= VIBE_IO_MAX ? n : 2; }
+float *vibe_output(int o)
+{
+  if (o == 0 || o == 1) return outs_lr[o];
+  if (o < 2 || o >= vibe_output_count() || !outs_lr[0]) return 0;   /* (outside vibe_on_audio: none) */
+  ports.out_used |= 1u << o;
+  return ports.out[o - 2];
+}
+const char *vibe_input_name(int i) { if (i < 0 || i >= VIBE_IO_MAX) return ""; ports.in_name[i][15] = 0; return ports.in_name[i]; }
+const char *vibe_output_name(int o) { if (o < 0 || o >= VIBE_IO_MAX) return ""; ports.out_name[o][15] = 0; return ports.out_name[o]; }
 
 #ifdef __wasm__
 #define VIBE_IMPORT(n) __attribute__((import_module("env"), import_name(#n)))
@@ -822,6 +843,7 @@ void  vibe_output_names(const char *l, const char *r) { vout.name_l = l; vout.na
 float *vibe_cue(int c) { if (!(vout.flags & VIBE_OUT_CUE) || c < 0 || c > 1) return 0; vout.cue_written = 1; return vout.cue[c]; }
 int   vibe_cue_host(void) { return vout.host_cue; }
 VIBE_EXPORT(vibe_wasm_outputs) void *vibe_wasm_outputs(void) { return &vout; }
+VIBE_EXPORT(vibe_wasm_ports) void *vibe_wasm_ports(void) { return &ports; }   /* (SDK 26) more inputs and outputs */
 /* ---- SDK 12: the stream (Spotify Connect) – a table the host fills: the info (vibe_stream_info, 340 bytes), then
    w @340, r @344 (frames, ever counting), L[STREAM_N] @348, R[STREAM_N] after it. The host writes frames and moves w,
    the firmware reads them and moves r. */
@@ -832,6 +854,9 @@ VIBE_EXPORT(vibe_wasm_stream) void *vibe_wasm_stream(void) { return &stream; }
 static int fw_areas;                              /* (SDK 12) vibe_areas: the host sends VIBE_EV_AREA for − / + */
 void vibe_areas(int count) { fw_areas = count > 0 ? count : 0; }
 VIBE_EXPORT(vibe_wasm_areas) int vibe_wasm_areas(void) { return fw_areas; }
+static int fw_extras;                             /* (SDK 19 extras, 8.11.2026) vibe_extras_own: VB_X1 .. reach the firmware as buttons */
+void vibe_extras_own(int on) { fw_extras = on ? 1 : 0; }
+VIBE_EXPORT(vibe_wasm_extras) int vibe_wasm_extras(void) { return fw_extras; }
 const vibe_stream_info *vibe_stream(void) { return &stream.info; }
 int vibe_stream_read(float *l, float *r, int max)
 {
@@ -1015,12 +1040,20 @@ VIBE_EXPORT(vibe_wasm_io) float *vibe_wasm_io(void) { return io.in; }       /* i
 /* has_input: bit 0 = IN 1, bit 1 = IN 2 */
 VIBE_EXPORT(vibe_wasm_audio) void vibe_wasm_audio(int frames, int has_input) {
   inputs[0] = (has_input & 1) ? io.in : 0; inputs[1] = (has_input & 2) ? io.in2 : 0;
+  {                                             /* (SDK 26) IN 3.. and OUT 3.. of this block */
+    int ni = vibe_input_count(), no = vibe_output_count(), f = frames > 0 && frames <= VIBE_MAX_BLOCK ? frames : VIBE_MAX_BLOCK;
+    for (int k = VIBE_INPUTS; k < VIBE_IO_MAX; k++) inputs_x[k] = k < ni && (has_input >> k & 1) ? ports.in[k - 2] : 0;
+    for (int k = 2; k < no; k++) for (int i = 0; i < f; i++) ports.out[k - 2][i] = 0.0f;
+    ports.out_used = 0; outs_lr[0] = io.l; outs_lr[1] = io.r;
+  }
   mout_frames = frames > 0 ? frames : 1; clk_block(mout_frames);   /* (SDK 9: the clock's pulses of this block, then the firmware's MIDI) */
   if (vout.flags & VIBE_OUT_CUE) { for (int i = 0; i < mout_frames && i < VIBE_MAX_BLOCK; i++) vout.cue[0][i] = vout.cue[1][i] = 0.0f; vout.cue_written = 0; }
   mout_in_audio = 1;
   vibe_on_audio(inputs[0], io.l, io.r, frames);
   mout_in_audio = 0;
   inputs[0] = inputs[1] = 0;
+  for (int k = VIBE_INPUTS; k < VIBE_IO_MAX; k++) inputs_x[k] = 0;
+  outs_lr[0] = outs_lr[1] = 0;
   {                                             /* the timeline moves on */
     uint32_t l = frames_lo + (uint32_t)frames;
     frames_seq = frames_seq + 1u; VIBE_RELEASE();
