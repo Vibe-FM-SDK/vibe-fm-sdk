@@ -14,6 +14,10 @@
 #include "vibe_gfx.h"
 #include "vibe_dsp.h"
 
+/* Two flows (a must): every media call runs in the control flow (init, events, draw); the audio flow only writes silence
+   and shares nothing with it */
+VIBE_PARALLEL_AUDIO
+
 static float sr;
 static char srcs[1024], cur[VIBE_MEDIA_PATH], lines[24][128], status[96], wrote[VIBE_MEDIA_PATH];
 static int nsrc, nlines, sel, top, auto_mode = 1, auto_step, list_want = 1, src_want = 1, gone;

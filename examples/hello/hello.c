@@ -11,7 +11,13 @@
 #include "vibe_gfx.h"
 #include "vibe_dsp.h"
 
-static float sr, phase, freq = 440, amp, target, bend;
+/* Two flows (a must since 13 Nov 2026): vibe_on_audio runs in its own thread, beside vibe_on_event / vibe_on_draw.
+   Shared here: freq, target, bend – each a 32-bit value only vibe_on_event writes and vibe_on_audio only reads. That is
+   all the rules ask for such values (README "Two flows"); anything bigger goes through a queue (example-synth). */
+VIBE_PARALLEL_AUDIO
+
+static float sr, phase, amp;                        /* the audio flow's own */
+static volatile float freq = 440, target, bend;     /* written by events only, read by the audio */
 static int last_key = -1;
 static int held[VIBE_PADS];
 static int help;                                    /* HOME: the overview is open */

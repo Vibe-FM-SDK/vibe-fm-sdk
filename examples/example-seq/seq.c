@@ -9,6 +9,11 @@
 #include "vibe_dsp.h"
 #include "vibe_gfx.h"
 
+// Two flows (a must since 13 Nov 2026): vibe_on_audio runs beside vibe_on_event / vibe_on_draw. Here the audio owns the
+// clock, the position, the playing note and ALL of the MIDI out (the queue has one writer). The events own the steps
+// (on[], a byte each) and the root note; PLAY only asks: run_want + a counter the audio compares (README "Two flows").
+VIBE_PARALLEL_AUDIO
+
 enum { P_GATE, P_VEL, P_SWING, P_TEMPO, P_CHAN, P_COUNT };
 static const char *const CHAN[16] = { "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16" };
 static const vibe_param PARAMS[P_COUNT] = {
@@ -25,8 +30,11 @@ static float SR;
 static int help;
 static const char *const HELP[] = { "PADS", "steps 1-16 on / off", "KEYS", "the root note", "PLAY", "run / stop (own clock)",
   "ENCODER 1", "gate", "ENCODER 2", "velocity", "ENCODER 3", "swing", "ENCODER 4", "tempo", "HOME", "this overview" };
-static uint8_t on[16] = { 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0 };
-static int root = 48, running, step = -1, host_led;
+static volatile uint8_t on[16] = { 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 1, 0 };   // the events' (pads)
+static volatile int root = 48;                     // the events' (keys)
+static volatile int run_want, run_req;             // the events': PLAY pressed – run or stop, and a count of the presses
+static int run_done;                               // the audio's: the presses it has carried out
+static volatile int running, step = -1, host_led;  // the audio's (the display reads them)
 static double pos;                                 // position in 16ths (own clock)
 static int note_out = -1, gate_left;               // the note sounding (and sent), frames until its off
 static float phase, env;                           // the little voice
@@ -68,7 +76,7 @@ void vibe_on_event(const vibe_event *e)
   case VIBE_EV_PAD: if (e->down) { on[e->id] ^= 1; vibe_led_pad(e->id, 0x40E0D0, on[e->id] ? 0.6f : 0.0f); } break;
   case VIBE_EV_NOTE: if (e->down) root = e->id; break;
   case VIBE_EV_BUTTON:
-    if (e->id == VB_PLAY && e->down && !host_led) { running = !running; pos = 0.0; step = -1; vibe_transport_out(running); if (!running) note_off_now(0); }
+    if (e->id == VB_PLAY && e->down && !host_led) { run_want = !running; VIBE_RELEASE(); run_req++; }   // the audio starts / stops
     if (e->id == VB_HOME && e->down) help = !help;   // HOME = what every control does (Protokoll 3.2)
     if (e->id == VB_RETURN && e->down) help = 0;
     break;
@@ -86,6 +94,12 @@ void vibe_on_audio(const float *in, float *l, float *r, int n)
   const vibe_transport_info *tp = vibe_transport();
   int host = tp->has && tp->bpm > 0.0f;            // a DAW: its position, its tempo, its play
   host_led = host;
+  int rq = run_req;                                // PLAY asked: start or stop here, in the flow that sends the MIDI
+  if (rq != run_done) {
+    VIBE_ACQUIRE();
+    run_done = rq; running = run_want; pos = 0.0; step = -1;
+    vibe_transport_out(running); if (!running) note_off_now(0);
+  }
   float bpm = host ? tp->bpm : vibe_param_get(P_TEMPO);
   double per = (double)bpm / 60.0 * 4.0 / (double)SR;    // 16ths a frame
   int play = host ? tp->playing : running;

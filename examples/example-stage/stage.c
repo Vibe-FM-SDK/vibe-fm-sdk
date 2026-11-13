@@ -12,7 +12,12 @@
 #include "vibe_gfx.h"
 #include "vibe_dsp.h"
 
-static float sr, phase, freq = 220, amp, target, cutoff = 0.5f, level, lp;
+/* Two flows (a must): the audio runs beside events and drawing. freq, target and cutoff: written by events only; level:
+   written by the audio only (the stage reads it) – single-writer 32-bit values, nothing else is shared */
+VIBE_PARALLEL_AUDIO
+
+static float sr, phase, amp, lp;
+static volatile float freq = 220, target, cutoff = 0.5f, level;
 static int last_key = -1, help, dragging;
 static const char *const HELP[] = { "KEYS", "a tone", "ENCODER 1", "CUTOFF – the big dial on the stage too", "HOME", "this overview" };
 

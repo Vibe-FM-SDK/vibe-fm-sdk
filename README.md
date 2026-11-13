@@ -168,7 +168,40 @@ on the hardware, where the Editor does not exist.
   VIBE's card and USB sticks, the emulator's Media folder, the plugin's media folder) into a buffer of your own, ahead of
   the audio – never bundle them into the firmware. -2 = not yet (wait for `VIBE_EV_MEDIA` READY), -1 = gone.
 - **Don't run code at load time** other than through `vibe_on_init`.
-- Leave `VIBE_PARALLEL_AUDIO` off for now (it has extra rules we have not published yet).
+- **Two flows – a must (since 13 Nov 2026):** every native Vibe puts `VIBE_PARALLEL_AUDIO;` in its code. See "Two flows"
+  below; `vibe-check` fails a Vibe without it.
+
+## Two flows (`VIBE_PARALLEL_AUDIO`)
+
+With `VIBE_PARALLEL_AUDIO` the host runs your firmware in **two flows at the same time**:
+
+| Flow | Calls |
+|---|---|
+| **Audio** | only `vibe_on_audio` – in a realtime thread, on the VIBE FM with a 4 ms buffer |
+| **Control** | everything else: `vibe_on_event`, `vibe_on_draw`, lights, labels, media, storing |
+
+So a long draw, a screensaver, loading a sample or any other work can never hold the sound up. Without it, everything
+shares one flow: on the hardware a draw of a few milliseconds is already a click (a block is 2.67 ms). That is why it is
+a must. `vibe_on_init` runs first, alone. A host may still call everything in one flow – your firmware must work both
+ways.
+
+The rules for the data both flows touch:
+
+1. **Values of at most 32 bits that only ONE flow writes** (a knob's value, a counter, a flag) – fine as they are.
+   A flag both flows write (set by an event, cleared by the audio) is not: use two counters instead – the control flow
+   counts requests up, the audio flow remembers the last one it handled.
+2. **Anything bigger goes through a queue with one writer and one reader** (a ring with two counters) – notes from
+   `vibe_on_event` to `vibe_on_audio`, for example. Write the data, then `VIBE_RELEASE();`, then the counter; the reader
+   reads the counter, then `VIBE_ACQUIRE();`, then the data. On the hardware (ARM, several cores) the other core may
+   otherwise see the counter before the data.
+3. **Big state (a whole pattern, a sound) as a swap:** fill a second copy in the control flow, `VIBE_RELEASE()`, set a
+   flag; the audio flow takes it at a good moment (the next bar) and acknowledges with a counter of its own.
+4. **The audio flow does not** log, store, request, read media, set lights or labels, or draw. It may write `cv_out` /
+   `gate_out`. MIDI out (`vibe_midi_send`): from one flow only.
+5. **The control flow never waits for the audio flow** (no spin loops, no locks – in a DAW the audio may not run at all
+   for a while).
+
+The examples in `examples/` all use two flows and show each rule where it applies; OberVave 3 and VOX are the big ones.
 
 ## New in SDK 10: FOCUS
 

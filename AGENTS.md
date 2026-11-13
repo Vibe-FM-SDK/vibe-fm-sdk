@@ -17,8 +17,9 @@ function is documented where it is declared. When this file and a header disagre
 5. **HOME shows the controls:** HOME tapped = what every key, knob and pad on the open page does (`vg_controls()` draws
    the standard overview in one call); HOME again or RETURN closes it. HOME held 1 s or SHIFT+HOME opens the firmware
    library – the **host** does that. Never call `vibe_request(VIBE_REQ_FIRMWARE_MENU)` for HOME (vibe-check fails it).
-6. **No clicks, ever:** nothing heavy in `vibe_on_audio`, and nothing long in `vibe_on_draw`. On the VIBE, drawing and
-   sound share one flow. `wasmtest` reports `draw_max_ms`, which should stay at a few ms.
+6. **No clicks, ever:** nothing heavy in `vibe_on_audio`, and nothing long in `vibe_on_draw`. Use two flows
+   (`VIBE_PARALLEL_AUDIO`, a must – README "Two flows"): drawing and every other job then run beside the sound, never in
+   its turn. `wasmtest` reports `draw_max_ms`, which should stay at a few ms.
 7. **`vibe-check` passes before you call it done.**
 8. **You write the firmware, never the host.** All work happens in the firmware's folder (C, `firmware.json`). Never
    modify, patch, rebuild or redistribute VIBE FM VST (closed software, all rights reserved) or the emulator
@@ -64,7 +65,10 @@ The host calls all four from **one thread, one after the other** – no locks, n
    all (the plugin with its window closed). Sequencers, envelopes, recording belong in `vibe_on_audio`.
 6. **Nothing runs at load time** except through `vibe_on_init` (no constructors, no work in global initialisers beyond
    constant data).
-7. Leave `VIBE_PARALLEL_AUDIO` off.
+7. **`VIBE_PARALLEL_AUDIO;` is a must** (13 Nov 2026): the audio in its own flow. Share data between the flows only as
+   ≤32-bit values with one writer, single-writer/single-reader rings (`VIBE_RELEASE()` / `VIBE_ACQUIRE()` around the
+   handover) or a swap with an acknowledge; the audio flow never logs, stores, requests, reads media, sets lights or
+   draws; the control flow never waits for the audio. `vibe-check` fails a native Vibe with one flow. README: "Two flows".
 
 ## The controls (fixed: they are the hardware's)
 

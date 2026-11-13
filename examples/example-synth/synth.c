@@ -6,6 +6,12 @@
 #include "vibe_dsp.h"
 #include "vibe_gfx.h"
 
+// ---- two flows (a must since 13 Nov 2026): vibe_on_audio runs in its own thread, beside vibe_on_event / vibe_on_draw.
+// The voices, the filter and the envelopes belong to the audio alone. The events only hand over: notes through a queue
+// (one writer, one reader), "the filter / the envelopes changed" as counters only the events count up – the audio
+// compares them with what it has done. Never a flag both sides write. (README "Two flows")
+VIBE_PARALLEL_AUDIO
+
 // ---- the parameters: what the DAW automates, what encoders 1-4 + A turn ---------------------------------------
 enum { P_CUTOFF, P_RESO, P_ATTACK, P_RELEASE, P_VOLUME, P_COUNT };
 static const vibe_param PARAMS[P_COUNT] = {
@@ -25,7 +31,11 @@ static voice V[VOICES];
 static float SR;
 static unsigned age;
 static vd_svf_c filt;
-static int filt_dirty = 1;
+static volatile uint32_t filt_req = 1, env_req = 1;   // counted up by the events (control flow) only
+static uint32_t filt_done, env_done;                  // the audio's: the requests it has carried out
+#define QN 64                                         // the note queue: the events write q[] then qw, the audio reads to qw then qr
+static struct { int note; float vel; } q[QN];         // vel 0 = note off
+static volatile uint32_t qw, qr;
 static double click_bar = -1.0;                   // the bar line last clicked (a loop back, a jump: a new one)
 static float click_env;
 
@@ -54,6 +64,15 @@ static void note_off(int note)
 }
 
 // ---- the four functions ------------------------------------------------------------------------------------------
+static void queue_note(int note, float vel)     // (control flow) full: dropped
+{
+  uint32_t w = qw;
+  if (w - qr >= QN) return;
+  q[w % QN].note = note; q[w % QN].vel = vel;
+  VIBE_RELEASE();                                 // the data before the counter
+  qw = w + 1;
+}
+
 void vibe_on_init(float sample_rate)
 {
   SR = sample_rate;
@@ -72,11 +91,11 @@ void vibe_on_event(const vibe_event *e)
   if (e->type == VIBE_EV_BUTTON && e->down && (e->id == VB_HOME || e->id == VB_RETURN)) { help = e->id == VB_HOME ? !help : 0; return; }
   switch (e->type) {
   case VIBE_EV_NOTE:                              // from any source: e->midi[1] says which (keys, pads, MIDI, host)
-    if (e->down) note_on(e->id, e->value); else note_off(e->id);
+    queue_note(e->id, e->down ? (e->value > 0.0f ? e->value : 0.01f) : 0.0f);   // the audio plays it
     break;
   case VIBE_EV_PARAM:                             // the DAW moved one (its value is already stored: vibe_param_get)
-    if (e->id == P_CUTOFF || e->id == P_RESO) filt_dirty = 1;
-    if (e->id == P_ATTACK || e->id == P_RELEASE) env_update();
+    if (e->id == P_CUTOFF || e->id == P_RESO) filt_req++;
+    if (e->id == P_ATTACK || e->id == P_RELEASE) env_req++;
     break;
   case VIBE_EV_ENCODER:                           // encoders 1-4 and A turn the five parameters; the DAW records it
     if (e->id <= VE_A) {
@@ -84,8 +103,8 @@ void vibe_on_event(const vibe_event *e)
       const vibe_param *d = &PARAMS[p];
       float step = (d->max - d->min) / 100.0f;
       vibe_param_set(p, vibe_param_get(p) + e->value * step);
-      if (p == P_CUTOFF || p == P_RESO) filt_dirty = 1;
-      if (p == P_ATTACK || p == P_RELEASE) env_update();
+      if (p == P_CUTOFF || p == P_RESO) filt_req++;
+      if (p == P_ATTACK || p == P_RELEASE) env_req++;
     }
     break;
   default: break;
@@ -95,7 +114,12 @@ void vibe_on_event(const vibe_event *e)
 void vibe_on_audio(const float *in, float *out_l, float *out_r, int frames)
 {
   (void)in;
-  if (filt_dirty) { vd_svf_set(&filt, vibe_param_get(P_CUTOFF), vibe_param_get(P_RESO), SR); filt_dirty = 0; }
+  uint32_t fr = filt_req, er = env_req, w = qw;  // what the events asked for since the last block …
+  VIBE_ACQUIRE();                                 // … and then the queued notes' data
+  if (fr != filt_done) { vd_svf_set(&filt, vibe_param_get(P_CUTOFF), vibe_param_get(P_RESO), SR); filt_done = fr; }
+  if (er != env_done) { env_update(); env_done = er; }
+  for (uint32_t k = qr; k != w; k++) { if (q[k % QN].vel > 0.0f) note_on(q[k % QN].note, q[k % QN].vel); else note_off(q[k % QN].note); }
+  VIBE_RELEASE(); qr = w;                         // (read before the slots are given back)
   float vol = vibe_param_get(P_VOLUME) * 0.25f;
   const vibe_transport_info *tp = vibe_transport();
   int bars = tp->has && tp->playing && tp->bpm > 0.0f;

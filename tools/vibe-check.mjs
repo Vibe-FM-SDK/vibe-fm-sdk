@@ -280,6 +280,14 @@ if (r1.version >= 5) {   // Protokoll 5: the time table and the flows (6.2, 7.1)
   check('Format', !miss5.length, miss5.length ? 'version 5 without ' + miss5.join(', ') : `time table present · flows: ${r1.flows === 2 ? '2 (parallel audio allowed)' : '1'}`);
   if (!miss5.length) check('Format', r1.flows === 1 || r1.flows === 2, `vibe_wasm_flows = ${r1.flows}`);
 }
+{ // (13 Nov 2026) two flows are a must for a native Vibe: VIBE_PARALLEL_AUDIO. With one flow the display and every other
+  // job run in the sound's turn – on the VIBE FM hardware a long draw or a screensaver breaks the sound up.
+  // A converted FM-1 firmware (its description says "converted") gets a note: the converter decides there.
+  const converted = !!(manifest && /converted/i.test(manifest.description || ''));
+  if (r1.flows === 2) check('Flow', true, 'its own audio flow (VIBE_PARALLEL_AUDIO)');
+  else if (converted) check('Flow', null, 'one flow (a converted FM-1 firmware): the VIBE gives it a 32 ms buffer');
+  else check('Flow', false, 'one flow only – a native Vibe MUST use VIBE_PARALLEL_AUDIO (vibe.h); never draw in the sound (README: "Two flows")');
+}
 if (manifest && manifest.protocol && manifest.protocol !== r1.version) check('Manifest', false, `"protocol": ${manifest.protocol}, the firmware reports ${r1.version}`);
 if (r1.trap && process.env.VIBE_STACK) console.error(r1.stack);
 { // Protokoll 9: nothing time-critical in draw – a note must sound the same whether the host draws or not

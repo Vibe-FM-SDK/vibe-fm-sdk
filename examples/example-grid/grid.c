@@ -9,19 +9,33 @@
 #include "vibe_gfx.h"
 #include "vibe_dsp.h"
 
+/* Two flows (a must): vibe_on_audio runs beside vibe_on_event / vibe_on_draw. The voices belong to the audio alone;
+   a pad or key only queues a note (a ring with one writer, the events, and one reader, the audio – README "Two flows") */
+VIBE_PARALLEL_AUDIO
+
 static float sr;
 static vibe_device_info dev;
 static int cols = 4, rows = 4, pads = 16;
 static uint8_t held[VIBE_PADS_MAX];
 #define VOICES 8
-static struct { float f, ph, env; int src; } v[VOICES];
-static int next, help;
+static struct { float f, ph, env; } v[VOICES];   /* the audio's alone */
+static int next, help;                          /* next: the audio's; help: the control flow's */
+#define QN 32                                   /* the note queue: events write q[] then w, the audio reads up to w then r */
+static struct { float f, env; } q[QN];
+static volatile uint32_t qw, qr;
 static const char *const HELP[] = { "PADS", "a note each, a fourth per row up", "KEYS", "the same sound", "HOME", "this overview" };
 static const uint32_t COLOUR[8] = { 0xFF6A1A, 0xFFC21A, 0x6EE7A8, 0x1AD6FF, 0x5B7CFF, 0xB65BFF, 0xFF5BC8, 0xE6EAF2 };
 
 static int pad_note(int p) { int r = p / cols, c = p % cols; return 36 + c + (rows - 1 - r) * 5; }
 static void pad_light(int p) { vibe_led_pad(p, held[p] ? 0xFFFFFF : COLOUR[(p % cols) & 7], held[p] ? 1.0f : 0.25f); }
-static void play(int note, float vel, int src) { v[next].f = vd_mtof((float)note); v[next].ph = 0; v[next].env = 0.35f * vel; v[next].src = src; next = (next + 1) % VOICES; }
+static void play(int note, float vel)            /* (control flow) a note into the queue – full: dropped */
+{
+  uint32_t w = qw;
+  if (w - qr >= QN) return;
+  q[w % QN].f = vd_mtof((float)note); q[w % QN].env = 0.35f * vel;
+  VIBE_RELEASE();                               /* the note's data before the counter that hands it over */
+  qw = w + 1;
+}
 
 void vibe_on_init(float sample_rate)
 {
@@ -36,9 +50,9 @@ void vibe_on_event(const vibe_event *e)
 {
   if (e->type == VIBE_EV_PAD && e->id < pads) {
     held[e->id] = e->down; pad_light(e->id);
-    if (e->down) play(pad_note(e->id), e->value > 0 ? e->value : 0.9f, e->id);
+    if (e->down) play(pad_note(e->id), e->value > 0 ? e->value : 0.9f);
   }
-  if (e->type == VIBE_EV_KEY && e->down) play(48 + e->id, e->value, -1);
+  if (e->type == VIBE_EV_KEY && e->down) play(48 + e->id, e->value);
   if (e->type == VIBE_EV_BUTTON && e->down) {   /* pressed = e->down · HOME = what every control does (Protokoll 3.2) */
     if (e->id == VB_HOME) help = !help; else if (e->id == VB_RETURN) help = 0;
   }
@@ -46,6 +60,10 @@ void vibe_on_event(const vibe_event *e)
 
 void vibe_on_audio(const float *in, float *l, float *r, int n)
 {
+  uint32_t w = qw;                               /* (audio flow) the queued notes: the counter first … */
+  VIBE_ACQUIRE();                                 /* … then their data */
+  for (uint32_t k = qr; k != w; k++) { v[next].f = q[k % QN].f; v[next].ph = 0; v[next].env = q[k % QN].env; next = (next + 1) % VOICES; }
+  VIBE_RELEASE(); qr = w;                         /* (read before the slots are given back) */
   float dec = vd_exp2(-1.0f / (0.35f * sr));   /* a pluck: half its level in 0.35 s */
   for (int i = 0; i < n; i++) {
     float s = 0;
