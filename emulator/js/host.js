@@ -61,6 +61,23 @@ function send(type, id, down, value, midi = 0) {
   if (REMOTE) { fetch(`/ev?t=${type}&i=${id}&d=${down ? 1 : 0}&v=${value}&m=${midi}`).catch(() => {}); return; }
   if (node && running) node.port.postMessage({ t: 'ev', type, id, down, value, midi, heard: heardFrame() }); }
 // Protokoll 5 (7.1): the context frame at the loudspeaker right now – what the player heard when touching a control
+// (SDK 27, 13.11.2026) a MIDI clock's position: controllers.js follows the clock in performance.now() ms; its line goes to the
+// audio in heard context seconds (the context time of the sample at the loudspeaker – what getOutputTimestamp pairs with
+// performance.now), so the processor writes, for each block, where the master is when that block is HEARD (the worklet:
+// currentFrame; the engine: the frame the ring plays it at). Not in the plugin: the DAW fills the position there.
+let clockLine = null;
+function perfToHeard(t) {                           // performance.now() ms -> heard context seconds
+  const ts = ctx && ctx.getOutputTimestamp ? ctx.getOutputTimestamp() : null;
+  if (ts && ts.contextTime) return ts.contextTime + (t - ts.performanceTime) / 1000;
+  const lat = ctx ? (ctx.outputLatency || 0) + (ctx.baseLatency || 0) : 0;   // (no timestamp yet: the context's clock less its latency)
+  return ctx ? ctx.currentTime - lat + (t - performance.now()) / 1000 : 0;
+}
+function clockSend() {
+  if (!clockLine || !node || PLUGIN || REMOTE) return;
+  const l = clockLine;
+  node.port.postMessage({ t: 'vcf', line: { has: l.has, playing: l.playing, moving: l.moving, bpm: l.bpm, a_t: perfToHeard(l.a_t), a_beat: l.a_beat, slope: l.slope * 1000 } });
+}
+ctl.onClockLine = (l) => { clockLine = l; clockSend(); };
 function heardFrame() {
   if (!ctx || !ctx.getOutputTimestamp) return undefined;
   const ts = ctx.getOutputTimestamp();
@@ -109,6 +126,7 @@ async function boot(fw) {
   if (micNode && sameFw) inGain.connect(node);
   else if (micNode) disableInput('Audio input off – a firmware that needs it switches it on again');   // (3.11.: no microphone left open into the next firmware)
   node.port.onmessage = (m) => onMessage(m.data);
+  clockSend();                                      // (SDK 27) a clock that leads already: its line to the new firmware
   node.port.postMessage({ t: 'latency', frames: Math.round(((ctx.outputLatency || 0) + (ctx.baseLatency || 0)) * ctx.sampleRate) });   // Protokoll 5
   hideMenu(); loadCheat(fw);
 }

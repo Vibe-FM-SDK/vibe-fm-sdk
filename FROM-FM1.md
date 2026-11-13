@@ -92,7 +92,8 @@ smallest controller. Usually ten lines: `vf_begin` … `vf_value` / `vf_encoder`
 
 **5. The DAW.** Declare your parameters (`vibe_params`, permanent `id`s: automation hangs on them) and groups
 (`vibe_param_groups`: they become the plugin's Editor tabs and cards). Run your sequencer from the song position
-(`vibe_transport()`) when the DAW plays, from your own tempo when not. A firmware with tracks reports its mixer
+(`vibe_transport()`) when the DAW plays – or an external MIDI clock: since SDK 27 the VIBE and the browser fill the same
+position from it, locked to the master's beat (no drift) – and from your own tempo when not. A firmware with tracks reports its mixer
 (SDK 11: `mix_<n>_level` …; OberVave: `o3_daw.h`).
 
 **6. Storage.** Write your patches, patterns and settings with `vibe_store_*`. Keep the same formats and names as on the

@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 26       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 27       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -89,7 +89,13 @@
                                       26 (9.11.2026, docs/sdk-26-ein-ausgaenge.md): more inputs and outputs – up to 16 of
                                       each (an audio interface with 8 ins, a mixer's returns): vibe_input_count,
                                       vibe_output_count, vibe_input(2..15), vibe_output(n), their names. Optional export
-                                      (vibe_wasm_ports, Protokoll 8.2); a host without it: 2 and 2, as before. */
+                                      (vibe_wasm_ports, Protokoll 8.2); a host without it: 2 and 2, as before.
+                                      27 (13.11.2026): the device and the browser fill vibe_transport() from a MIDI clock –
+                                       a position (beat, bar_start, bpm, playing), coupled to the clocks (it stays on the
+                                       master's beat for hours: a PI loop once a quarter, runtime/common/vibe_clock_follow.h),
+                                       as the plugin does from the DAW. START, CONTINUE, STOP, Song Position Pointer; no
+                                       clock for a second: has = 0. VIBE_EV_TRANSPORT TEMPO / PLAY still come (older
+                                       firmwares). Nothing new to call: read vibe_transport() as for the DAW. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -306,7 +312,9 @@ void vibe_tempo_set(float bpm);          /* the firmware's own tempo, 20..400 (d
 float vibe_tempo_get(void);
 void vibe_transport_out(int playing);    /* 1 = START, 0 = STOP – out as MIDI; the clock (if on) starts from here */
 
-/* ---- the host's position (SDK 8): where in the song – the DAW in the plugin; elsewhere what a MIDI clock tells ------
+/* ---- the host's position (SDK 8): where in the song – the DAW in the plugin; elsewhere what a MIDI clock tells (SDK 27:
+   the VIBE and the browser fill it from an external clock – START, 24 clocks a quarter, CONTINUE, STOP, Song Position –
+   a smooth position coupled to the master's quarters, so a sequencer that follows it never drifts) ----------------------
    The values of the current audio block (inside vibe_on_audio: this block's first frame; in vibe_on_event / vibe_on_draw:
    the last block's – fine for the display). A host that gives none (an older one, the device without a clock): has = 0,
    the rest as the firmware's own. With it, a sequencer starts in the right place and follows loops. */

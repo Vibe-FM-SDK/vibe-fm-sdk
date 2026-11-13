@@ -93,7 +93,9 @@ The host calls all four from **one thread, one after the other** – no locks, n
   arrives as `VIBE_EV_PARAM` (the value is already stored); when your own knob changes one, call `vibe_param_set(i, v)`.
   Groups (`vibe_param_groups`, "A · FILTER" = tab A, card FILTER) build the plugin's Editor.
 - **The song position**: `vibe_transport()` (bpm, playing, beat, bar_start, loop) – fill sequencers from it inside
-  `vibe_on_audio`; `has == 0` means no host clock: run on your own tempo.
+  `vibe_on_audio`; `has == 0` means no host clock: run on your own tempo. SDK 27: the VIBE and the browser fill it from an
+  external MIDI clock too (START/CONTINUE/STOP, Song Position, locked to the master's quarters) – nothing extra to call;
+  don't count F8 clocks yourself, follow `beat`.
 
 ## SDK 9
 

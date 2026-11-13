@@ -170,6 +170,9 @@ class VibeHost extends AudioWorkletProcessor {
       this.io = x.vibe_wasm_io();
       this.rear = x.vibe_wasm_rear ? x.vibe_wasm_rear() : 0;   // SDK 2: cv_out, gate_out, cv_in, in_mode[2], in_link
       this.vt = this.sdk >= 5 && x.vibe_wasm_time ? x.vibe_wasm_time() : 0;   // SDK 5: the time table
+      // (SDK 27, 13.11.2026) a MIDI clock's position: the page follows the clock (js/clockfollow.js) and sends its line in the
+      // context's heard time ('vcf'); before each block it is written into the firmware's vibe_transport_info (SDK 8)
+      this.tp = x.vibe_wasm_transport ? x.vibe_wasm_transport() : 0; this.vcf = null; this.vcfWas = 0;
       this.ok = true;
       // SDK 23: the stage – a second, bigger picture the firmware draws (vibe_stage in its init: size, background)
       this.stage = null; this.stageOn = false;
@@ -207,6 +210,7 @@ class VibeHost extends AudioWorkletProcessor {
             new Uint8Array(x.memory.buffer, x.vibe_wasm_sysex_buf(), b.length).set(b); x.vibe_wasm_sysex_in(b.length);
           }
         }
+        else if (d.t === 'vcf') this.vcf = d.line;          // (SDK 27) the MIDI clock's line, in seconds of heard context time
         else if (d.t === 'latency') { if (this.vt) new Uint32Array(this.x.memory.buffer, this.vt, 8)[2] = d.frames; }
         else if (d.t === 'storeput') store.set(d.name, d.data);
         else if (d.t === 'msrc') this.media.sources(d.list);   // SDK 13: the page's folders
@@ -326,6 +330,18 @@ class VibeHost extends AudioWorkletProcessor {
     msgs.sort((a, b) => a[0] - b[0]);
     this.port.postMessage({ t: 'midi', msgs });
   }
+  // (SDK 27) vibe_transport_info from the MIDI clock's line (runtime/common/vibe_clock_follow.h's vcf_beat, inline: no import in
+  // the audio thread): has@0 playing@4 bpm f32@8 sig 4/4 @12/@16 beat f64@24 bar_start f64@32 loop@40; has 0 once when it stops
+  // leading. t: the block's first frame in heard context seconds (the line's own time base)
+  transportFill(t) {
+    const L = this.vcf, dv = new DataView(this.x.memory.buffer), a = this.tp;
+    if (!L || !L.has) { if (this.vcfWas) { dv.setInt32(a, 0, true); dv.setInt32(a + 4, 0, true); this.vcfWas = 0; } return; }
+    const beat = L.moving && t > L.a_t ? L.a_beat + (t - L.a_t) * L.slope : L.a_beat;
+    dv.setInt32(a, 1, true); dv.setInt32(a + 4, L.playing ? 1 : 0, true); dv.setFloat32(a + 8, L.bpm, true);
+    dv.setInt32(a + 12, 4, true); dv.setInt32(a + 16, 4, true);
+    dv.setFloat64(a + 24, beat, true); dv.setFloat64(a + 32, Math.floor(beat / 4) * 4, true); dv.setInt32(a + 40, 0, true);
+    this.vcfWas = 1;
+  }
   process(inputs, outputs) {
     if (!this.ok) return true;
     if (this.f0 === undefined) this.f0 = currentFrame;   // (frame 0 of the firmware's timeline, in context frames)
@@ -336,6 +352,7 @@ class VibeHost extends AudioWorkletProcessor {
       const buf = new Float32Array(this.x.memory.buffer, this.io, 256 * 4);
       if (in1) buf.set(in1.subarray(0, n), 0);
       if (in2) buf.set(in2.subarray(0, n), 768);
+      if (this.tp) this.transportFill(currentFrame / sampleRate);   // (SDK 27) where the master is when this block is heard
       this.x.vibe_wasm_audio(n, (in1 ? 1 : 0) | (in2 ? 2 : 0));
       out[0].set(buf.subarray(256, 256 + n));
       if (out[1]) out[1].set(buf.subarray(512, 512 + n));

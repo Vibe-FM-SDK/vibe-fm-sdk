@@ -20,6 +20,7 @@
 //     notes on channel 10, 36-51 = the 16 pads; all other notes and messages go to the firmware as USB-MIDI;
 //     knobs and buttons: MIDI-Learn (touch a VIBE control, move the controller's) – kept in the browser.
 import { EV, BTN, ENC } from './panel.js';
+import { vcfNew, vcfStart, vcfContinue, vcfStop, vcfSpp, vcfTick, vcfWatch, vcfLine } from './clockfollow.js';
 
 const LP_SYSEX = [0xF0, 0x00, 0x20, 0x29, 0x02, 0x0D];
 const isLaunchpad = (name) => /LPMiniMK3|Launchpad Mini/i.test(name || '');
@@ -275,10 +276,12 @@ export class Controllers {
     if (!this.learning && !this.wiz && this.onRaw && this.onRaw(d)) return;
     // transport of a hardware sequencer (BeatStep Pro, drum machines, DAWs): MIDI clock, Start/Continue, Stop – to the
     // firmware as TRANSPORT (SDK 7, as the VIBE FM Plugin and the device do); older firmwares: PLAY / STOP
-    if (d[0] === 0xF8) { if (!this.plugin) this.clockTick(); return; }
+    if (d[0] === 0xF8) { if (!this.plugin) { this.clockTick(); this.follow((c, t) => vcfTick(c, t)); } return; }
+    if (d[0] === 0xF2) { if (!this.plugin) this.follow((c, t) => vcfSpp(c, t, ((d[2] || 0) << 7) | (d[1] || 0))); return; }   // (Song Position Pointer)
     if (d[0] === 0xFA || d[0] === 0xFB || d[0] === 0xFC) {
       if (this.plugin) return;                         // (in the plugin the DAW's own transport leads)
       const stop = d[0] === 0xFC;
+      this.follow((c, t) => (d[0] === 0xFA ? vcfStart : d[0] === 0xFB ? vcfContinue : vcfStop)(c, t));
       this.activity('MIDI ← ' + dev.replace(/Arturia /g, '') + ': ' + (stop ? 'Stop' : 'Start'));
       this.transport(0, stop ? 0 : 1, 0); return;
     }
@@ -525,6 +528,20 @@ export class Controllers {
   transport(id, down, value) {   // id 0 PLAY, 1 TEMPO (BPM)
     if ((this.sdk || 0) >= 7) { this.send(EV.TRANSPORT, id, down, value); return; }
     if (id === 0) { const b = down ? BTN.PLAY : BTN.STOP; this.send(EV.BUTTON, b, 1, 0); this.send(EV.BUTTON, b, 0, 0); }
+  }
+  // (SDK 27, 13.11.2026) the MIDI clock's position, as the device's runtime follows it (js/clockfollow.js = runtime/common/
+  // vibe_clock_follow.h): every message with its time; its line goes to the page (onClockLine) whenever it changed – the
+  // audio writes vibe_transport_info from it before each block. A second without clocks: no position (has 0).
+  follow(fn) {
+    const t = performance.now(), c = this.vcf || (this.vcf = vcfNew());
+    fn(c, t);
+    if (!this.vcfWatch) this.vcfWatch = setInterval(() => { if (this.vcf && vcfWatch(this.vcf, performance.now())) this.clockLine(); }, 250);
+    this.clockLine();
+  }
+  clockLine() {
+    const l = vcfLine(this.vcf), k = [l.has, l.playing, l.moving, l.bpm, l.a_t, l.a_beat, l.slope].join(',');
+    if (k === this.vcfSent) return;
+    this.vcfSent = k; if (this.onClockLine) this.onClockLine(l);
   }
   // the MIDI clock's tempo, as the device's runtime measures it (runtime/linux/vibe_runtime.c clock_tick): once a quarter
   // over up to two bars, 0.1 BPM, refined while the window grows, then only moves of 0.3 or more; a quarter more than 2 %
