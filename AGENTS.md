@@ -97,6 +97,42 @@ The host calls all four from **one thread, one after the other** – no locks, n
   external MIDI clock too (START/CONTINUE/STOP, Song Position, locked to the master's quarters) – nothing extra to call;
   don't count F8 clocks yourself, follow `beat`.
 
+## SDK 28: K1–K6 that play music (PLAY KEYS)
+
+On the VIBE, **SHIFT held + K1–K6 play notes in every firmware** – the first six degrees of the VIBE's key and scale
+(SETTINGS → KEYS), SHIFT + RETURN locks it. The host does it: your firmware just gets `VIBE_EV_KEY` (key 0 = the lowest C,
+your octave holds; with `vibe_notes()` they arrive as `VIBE_EV_NOTE` like any key). You see SHIFT let go before the
+first note, and never SHIFT + K or SHIFT + RETURN. **Nothing to do** – keep K1–K6 for your pages (house rule 2) and don't
+put another job on SHIFT + K or SHIFT + RETURN. Not in the emulator and the plugin (they have the on-screen keys).
+
+If you want more, the way OberVave 3 does it – a **KEY and SCALE on your GLOBAL page** – is the suggestion:
+
+- **Your own key, the host plays it:** a KEY / SCALE row on your GLOBAL page, and on every change
+  `vibe_scale_set(key, scale, chords)` (`enum vibe_scale_id`). SHIFT + K then plays your key while your firmware runs; the
+  VIBE's SETTINGS stay. Start your row from the VIBE's: `vibe_scale(&info)` in `vibe_on_init` (an older host or the
+  emulator answer C major). `vibe_scale_set(-1, 0, 0)` goes back to the VIBE's.
+- **Use the key for more:** pads, an arpeggiator, a sequencer's notes – `vibe_scale_note(&info, degree, base)` turns a
+  degree into a note number (degree 0 = the key above `base`'s C, on through the octaves).
+- **Your own K-key mode** (chords of your own, a toast with the chord's name, your own lock – OberVave and BOOM FM):
+  `vibe_play_keys(0)` in `vibe_on_init` (and `"play_keys": false` in `firmware.json`, so the VIBE knows before you start),
+  then SHIFT + K1–K6 and SHIFT + RETURN are yours. Keep to the same gestures, so the VIBE plays the same everywhere:
+
+```c
+static vibe_scale_info sc;        // the key and scale your GLOBAL page shows
+static int k_lock, held[6];       // SHIFT + RETURN: K1-K6 keep playing; the note each K plays + 1
+void vibe_on_init(float sr) { vibe_scale(&sc); vibe_play_keys(0); /* … */ }
+// in vibe_on_event, for VIBE_EV_BUTTON (shift = SHIFT held):
+if (e->id == VB_RETURN && e->down && shift) { k_lock = !k_lock; return; }
+if (e->id >= VB_K1 && e->id <= VB_K6) {
+  int k = e->id - VB_K1;
+  if (e->down && (shift || k_lock)) { held[k] = vibe_scale_note(&sc, k, 60) + 1; note_on(held[k] - 1, 0.8f); return; }
+  if (!e->down && held[k]) { note_off(held[k] - 1); held[k] = 0; return; }
+}
+// … K1-K6 without SHIFT: your pages (SOUND · ENV · LFO · ARP · FX · SEQ)
+```
+
+For chords: play degrees `k`, `k + 2` and `k + 4` together (the triad stacked in the scale).
+
 ## SDK 9
 
 - **MIDI out**: `vibe_midi_send(st, d1, d2)`, sample-exact from audio with `vibe_midi_send_at(…, frame)`. Clock:

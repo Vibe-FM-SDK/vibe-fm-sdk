@@ -147,6 +147,35 @@ int vibe_store_size(const char *n) { int l = store_name(n); return l ? vibe_host
 int vibe_store_delete(const char *n) { int l = store_name(n); return l ? vibe_host_store(3, n, l, 0, 0) : -1; }
 /* SDK 19: the device (op 14, the host fills the struct as it is laid out in vibe.h); no answer = the base, VIBE FM original */
 _Static_assert(sizeof(vibe_device_info) == 52, "op 14's layout is the hosts' (Protokoll 15b): 52 bytes");
+/* SDK 28: PLAY KEYS – the VIBE's KEY and SCALE (op 16: key, scale, chords, flags), the firmware's own K-key mode (op 17) */
+static const uint8_t SC_STEPS[VIBE_SCALE_COUNT] = { 7, 7, 7, 7, 7, 7, 5, 5, 6, 12 };
+static const uint8_t SC_IVS[VIBE_SCALE_COUNT][12] = {
+  { 0, 2, 4, 5, 7, 9, 11 }, { 0, 2, 3, 5, 7, 8, 10 }, { 0, 2, 3, 5, 7, 9, 10 }, { 0, 1, 3, 5, 7, 8, 10 },
+  { 0, 2, 4, 5, 7, 9, 10 }, { 0, 2, 3, 5, 7, 8, 11 }, { 0, 2, 4, 7, 9 }, { 0, 3, 5, 7, 10 }, { 0, 3, 5, 6, 7, 10 },
+  { 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11 } };
+int vibe_scale(vibe_scale_info *info)
+{
+  if (!info) return 0;
+  uint8_t b[4] = { 0, 0, 0, 0 };
+  int r = vibe_host_store(16, "", 0, b, 4), ok = r == 4 && b[0] < 12 && b[1] < VIBE_SCALE_COUNT;
+  if (!ok) b[0] = b[1] = b[2] = b[3] = 0;
+  info->key = b[0]; info->scale = b[1]; info->chords = b[2] ? 1 : 0; info->locked = b[3] & 1; info->own = (b[3] >> 2) & 1;
+  info->steps = SC_STEPS[b[1]]; for (int i = 0; i < 12; i++) info->interval[i] = SC_IVS[b[1]][i];
+  return ok;
+}
+int vibe_scale_note(const vibe_scale_info *s, int degree, int base)
+{
+  if (!s || !s->steps) return base;
+  int n = s->steps, o = degree >= 0 ? degree / n : -((-degree + n - 1) / n), d = degree - o * n;
+  return base + s->key % 12 + 12 * o + s->interval[d];
+}
+void vibe_play_keys(int on) { uint8_t v = on ? 1 : 0; vibe_host_store(17, "", 0, &v, 1); }
+void vibe_scale_set(int key, int scale, int chords)
+{
+  uint8_t b[3] = { (uint8_t)(key < 0 ? 255 : key % 12), (uint8_t)(scale < 0 || scale >= VIBE_SCALE_COUNT ? 0 : scale), (uint8_t)(chords ? 1 : 0) };
+  vibe_host_store(18, "", 0, b, 3);
+}
+
 int vibe_device(vibe_device_info *info)
 {
   if (!info) return 0;

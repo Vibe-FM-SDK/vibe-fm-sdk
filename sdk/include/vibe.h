@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 27       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 28       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -95,7 +95,14 @@
                                        master's beat for hours: a PI loop once a quarter, runtime/common/vibe_clock_follow.h),
                                        as the plugin does from the DAW. START, CONTINUE, STOP, Song Position Pointer; no
                                        clock for a second: has = 0. VIBE_EV_TRANSPORT TEMPO / PLAY still come (older
-                                       firmwares). Nothing new to call: read vibe_transport() as for the DAW. */
+                                       firmwares). Nothing new to call: read vibe_transport() as for the DAW.
+                                      28 (20.11.2026, Protokoll 15e): PLAY KEYS – the VIBE's KEY and SCALE (SETTINGS → KEYS)
+                                       and in every firmware SHIFT + K1-K6 play its first six degrees (SHIFT + RETURN locks
+                                       it), as key events: nothing to do for a firmware, older ones play along. vibe_scale()
+                                       reads the KEY / SCALE (a firmware's own scale can start from it), vibe_scale_set() makes
+                                       a firmware's own KEY (its GLOBAL page) the one SHIFT + K plays; a firmware with a K-key
+                                       mode of its own says vibe_play_keys(0) or "play_keys": false in its card. No new
+                                       import (ops 16 / 17 / 18 of vibe_host_store): an older host answers -1 – C MAJOR. */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -218,6 +225,32 @@ typedef struct {
 } vibe_device_info;
 int vibe_device(vibe_device_info *info);                 /* 1 = the host described it; 0 = a host without SDK 19: the base
                                                             (filled in all the same) */
+/* ---- PLAY KEYS (SDK 28, Protokoll 15e): the VIBE's KEY and SCALE -------------------------------------------------
+   One KEY and SCALE for the whole VIBE (SETTINGS → KEYS; the plugin and the browser: their own later). SHIFT held, K1-K6
+   play its first six degrees in every firmware – as VIBE_EV_KEY (key 0 = the lowest C of the keyboard, so the firmware's
+   octave holds), a chord as three; SHIFT + RETURN keeps them playing until SHIFT + RETURN again. The firmware sees
+   SHIFT let go before the first note, and neither SHIFT + K nor SHIFT + RETURN. vibe_scale() reads the KEY and SCALE –
+   for a firmware's own scale, arpeggiator or pads (BOOM, OberVave: their default). vibe_play_keys(0): the firmware has a
+   K-key mode of its own (BOOM, OberVave), the host leaves SHIFT + K and SHIFT + RETURN to it – best in vibe_on_init
+   ("play_keys": false in the firmware's card does the same before it starts). */
+enum vibe_scale_id { VIBE_SCALE_MAJOR, VIBE_SCALE_MINOR, VIBE_SCALE_DORIAN, VIBE_SCALE_PHRYGIAN, VIBE_SCALE_MIXOLYDIAN,
+                     VIBE_SCALE_HARMONIC_MINOR, VIBE_SCALE_PENTA_MAJOR, VIBE_SCALE_PENTA_MINOR, VIBE_SCALE_BLUES,
+                     VIBE_SCALE_CHROMATIC, VIBE_SCALE_COUNT };
+typedef struct {
+  uint8_t key;          /* 0 = C .. 11 = B */
+  uint8_t scale;        /* vibe_scale_id */
+  uint8_t chords;       /* 1 = K1-K6 play triads */
+  uint8_t locked;       /* 1 = SHIFT + RETURN: K1-K6 play now */
+  uint8_t own;          /* 1 = the firmware's own (vibe_scale_set), 0 = the VIBE's (SETTINGS → KEYS) */
+  uint8_t steps;        /* the scale's notes in an octave (7, 5, 6, 12) */
+  uint8_t interval[12]; /* each one's distance from the key in semitones (the first steps used) */
+} vibe_scale_info;
+int  vibe_scale(vibe_scale_info *info);       /* 1 = the host's; 0 = a host before SDK 28: C MAJOR (filled in all the same) */
+int  vibe_scale_note(const vibe_scale_info *s, int degree, int base);   /* degree 0.. above base's C + key, through the octaves */
+void vibe_play_keys(int on);                  /* 0 = the firmware plays SHIFT + K itself; 1 = the host's (the default) */
+void vibe_scale_set(int key, int scale, int chords);   /* the firmware's own KEY / SCALE (its GLOBAL page): SHIFT + K plays it
+                                                          while it runs – the VIBE's SETTINGS stay. key -1: back to the VIBE's */
+
 enum vibe_note_source { VIBE_NOTE_KEYS, VIBE_NOTE_PADS, VIBE_NOTE_MIDI, VIBE_NOTE_HOST };   /* SDK 8 */
 
 typedef struct {

@@ -3,7 +3,7 @@
 How to **play** the VIBE FM: in the emulator on your computer (`python3 tools/emulator.py`), in VIBE FM VST, and on
 the hardware to come. For **building** firmwares, see `README.md` and `AGENTS.md`.
 
-Status 11.11.2026 (SDK 26). Everything here runs in the emulator today. Things that only the hardware will have are
+Status 20.11.2026 (SDK 28). Everything here runs in the emulator today. Things that only the hardware will have are
 marked *(hardware)*.
 
 ---
@@ -25,6 +25,19 @@ marked *(hardware)*.
 
 A **firmware** is a whole instrument, for example OberVave, VIBE DJ, or what you build. The VIBE runs one at a time,
 and you switch between them in the firmware library.
+
+### K1 – K6 play music *(hardware)*
+
+No keyboard plugged in? **Hold SHIFT and K1 – K6 play notes** – in every firmware, the first six notes of a key and a
+scale. **SHIFT + RETURN** keeps them playing without SHIFT (an orange line along the top of the display); SHIFT + RETURN
+again gives the keys back to the firmware.
+
+- **Which notes:** SETTINGS → KEYS on the VIBE: the KEY (C … B), the SCALE (major, minor, dorian, phrygian, mixolydian,
+  harmonic minor, pentatonic major, pentatonic minor, blues, chromatic) and NOTES or CHORDS (a chord on every key).
+  The page shows what K1 – K6 play.
+- **A firmware may bring its own key:** if its GLOBAL page has a KEY, SHIFT + K plays that one while it runs.
+- **A firmware may play the keys itself** – OberVave and BOOM FM do, with their own scale page; their manuals say how.
+- In the emulator and in VIBE FM VST you have the keys on the screen and your computer keyboard instead.
 
 ## 2. The emulator
 
