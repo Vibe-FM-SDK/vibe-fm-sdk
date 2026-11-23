@@ -8,6 +8,19 @@ same is how your firmware sees each control: the names below are the ones in `sd
 
 ![VIBE Box v0.4, top panel with numbered controls](docs/img/vibe-box-top-panel.jpg)
 
+**Every control is yours.** The names on the panel are the house style, not a rule: each button and encoder reaches
+your firmware as a plain event (`VIBE_EV_BUTTON` / `VIBE_EV_ENCODER` with its id), and what it does is up to you. REC
+can be a fill, K1 – K6 can be scenes, mutes or drum hits, the transport can step through presets, DATA can scrub a
+sample. Only a few things belong to the host, so you can always get out of any firmware:
+
+- **HOME held 1 s, or SHIFT + HOME:** the firmware library (a short tap on HOME is yours).
+- **SHIFT + K1 – K6 and SHIFT + RETURN:** the PLAY KEYS (the VIBE's key and scale), until your firmware says
+  `vibe_play_keys(0)` – then SHIFT + K is yours too.
+- **VOLUME:** the device's own level, no event at all.
+
+What the labels promise is a convention that makes Vibes feel alike – follow it where it fits, drop it where your
+instrument wants something else, and say so on your screen (F1 – F6 captions, HOME's control overview).
+
 | # | On the panel | In your code |
 |---|---|---|
 | 1 | VOLUME | the device's output level – the host's, not an event |
