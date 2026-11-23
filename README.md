@@ -3,6 +3,10 @@
 **Write a Vibe – or port your FM-1 firmware – in plain C, as one file. It runs in your DAW as a plugin, in the browser,
 as a standalone app (iOS coming), and natively on the VIBE FM hardware.**
 
+![The VIBE Box v0.4 (rendering): a 4-inch screen with F1–F6, the transport, the colour keys K1–K6, encoders 1–4, A, B and DATA between plywood cheeks](docs/img/vibe-box-front.jpg)
+
+*The VIBE Box v0.4 – a rendering of the hardware a Vibe runs on natively. Every control and jack with its name in your code: [HARDWARE.md](HARDWARE.md).*
+
 You write a synth (or a sampler, a sequencer, an effect…) in plain C against one small API. It compiles to a single
 WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your DAW through VIBE FM VST, in the
 **browser**, and on the coming **VIBE FM hardware**. No plugin framework, no GUI toolkit, no per-platform builds.
