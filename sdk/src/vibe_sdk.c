@@ -363,10 +363,15 @@ static uint32_t utf8_next(const char **s) {
   if ((c >> 4) == 14) { c = ((c & 15) << 12) | ((p[1] & 63) << 6) | (p[2] & 63); *s += 3; return c; }
   *s += 1; return '?';
 }
+/* (SDK 28, 23.11.2026) a character the face does not have: its '?', else its space, else its first glyph – never a
+   loop and never past the face's table. VG_HUGE has no lowercase and no '?': "Cmaj7" in VG_HUGE hung the firmware (the
+   fallback asked for '?' forever) – found by Alex Enkerli (mvane yard) */
 static const vf_glyph *glyph(const vf_font *f, uint32_t cp) {
-  if (cp >= 32 && cp < 127 && f->g[cp - 32].cp == cp) return &f->g[cp - 32];
+  if (cp >= 32 && cp - 32 < f->count && f->g[cp - 32].cp == cp) return &f->g[cp - 32];
   for (int i = 0; i < f->count; i++) if (f->g[i].cp == cp) return &f->g[i];
-  return glyph(f, '?');
+  for (int i = 0; i < f->count; i++) if (f->g[i].cp == '?') return &f->g[i];
+  for (int i = 0; i < f->count; i++) if (f->g[i].cp == ' ') return &f->g[i];
+  return &f->g[0];
 }
 /* (SDK 23) font | VG_X2: the same face twice the size, pixel for pixel – for the stage (960 x 540 and more) */
 #define VG_SCALE(font) (((font) & VG_X2) ? 2 : 1)
