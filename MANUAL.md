@@ -23,6 +23,9 @@ marked *(hardware)*.
 | **16 pads · 25 keys** | velocity-sensitive. The pads light up in RGB. |
 | **Rear** | IN 1 / IN 2 (mic, line, guitar), OUT L/R, PHONES with its own signal, PEDAL, CV/Gate in and out, CLK IN, MIDI IN/OUT (DIN), USB *(hardware)* |
 
+The **VIBE Box**, the hardware prototype, has the same controls except the keys, the pads, OCT, ENTER and MENU – pictures of its top panel
+and its jacks, numbered, in [HARDWARE.md](HARDWARE.md).
+
 A **firmware** is a whole instrument, for example OberVave, VIBE DJ, or what you build. The VIBE runs one at a time,
 and you switch between them in the firmware library.
 

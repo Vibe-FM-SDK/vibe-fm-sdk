@@ -25,6 +25,7 @@ WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your
 > **Start here: the VIBE FM Lab – <https://thefirmwarehub.com/lab/>** – your first Vibe in three steps, and these docs in
 > a nicer look. **The VIBE Box Challenge is open:** build the coolest Vibe by 15 December and win a VIBE Box prototype –
 > the rules: <https://thefirmwarehub.com/lab/rules/>.
+> **What the Box looks like, every control and every jack with its name in your code: [HARDWARE.md](HARDWARE.md).**
 >
 > Early days: the SDK still grows, and new things are added, never taken away. Tell us what is missing, unclear or
 > broken: open an **issue** in this repository, or mail **zven@thefirmwarehub.com**
