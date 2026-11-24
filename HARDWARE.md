@@ -29,7 +29,7 @@ instrument wants something else, and say so on your screen (F1 – F6 captions, 
 | 4 | SHIFT | `VB_SHIFT` – a second job for many controls |
 | 5 | Display | 4.0", 480 × 320, colour: `VIBE_SCREEN_W` × `VIBE_SCREEN_H`, drawn in `vibe_on_draw` |
 | 6 | F1 – F6 | `VB_F1` … `VB_F6` – soft keys right under the screen, their captions are yours to draw |
-| 7 | ◀◀ REC STOP PLAY ▶▶ | `VB_LEFT`, `VB_REC`, `VB_STOP`, `VB_PLAY`, `VB_RIGHT` |
+| 7 | − + REC STOP PLAY | `VB_LEFT` (−), `VB_RIGHT` (+), `VB_REC`, `VB_STOP`, `VB_PLAY` – the event names stay LEFT / RIGHT for now |
 | 8 | Encoders 1 – 4 | `VE_1` … `VE_4` (`VIBE_EV_ENCODER`, value = detents, + clockwise) – the four values on the screen |
 | 9 | DATA | `VE_DATA` to turn, `VB_DATA_PUSH` to press |
 | 10 | K1 – K6 | `VB_K1` … `VB_K6` – the colour keys, the firmware's areas (house style SOUND · ENV · LFO · ARP · FX · SEQ) |
