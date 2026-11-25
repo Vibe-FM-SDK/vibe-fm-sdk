@@ -29,7 +29,7 @@ instrument wants something else, and say so on your screen (F1 – F6 captions, 
 | 4 | SHIFT | `VB_SHIFT` – a second job for many controls |
 | 5 | Display | 4.0", 480 × 320, colour: `VIBE_SCREEN_W` × `VIBE_SCREEN_H`, drawn in `vibe_on_draw` |
 | 6 | F1 – F6 | `VB_F1` … `VB_F6` – soft keys right under the screen, their captions are yours to draw |
-| 7 | − + REC STOP PLAY | `VB_LEFT` (−), `VB_RIGHT` (+), `VB_REC`, `VB_STOP`, `VB_PLAY` – the event names stay LEFT / RIGHT for now |
+| 7 | − + REC STOP PLAY | `VB_OCT_DOWN` (−), `VB_OCT_UP` (+), `VB_REC`, `VB_STOP`, `VB_PLAY` – − / + are the octave keys, as OCT − / OCT + on the VIBE FM |
 | 8 | Encoders 1 – 4 | `VE_1` … `VE_4` (`VIBE_EV_ENCODER`, value = detents, + clockwise) – the four values on the screen |
 | 9 | DATA | `VE_DATA` to turn, `VB_DATA_PUSH` to press |
 | 10 | K1 – K6 | `VB_K1` … `VB_K6` – the colour keys, the firmware's areas (house style SOUND · ENV · LFO · ARP · FX · SEQ) |
@@ -39,7 +39,7 @@ instrument wants something else, and say so on your screen (F1 – F6 captions, 
 All encoders are endless, with no LED rings: values belong on the display. Buttons come as `VIBE_EV_BUTTON` with
 `e->down` 1 / 0.
 
-**Not on the Box:** the VIBE FM's 25 keys, 16 pads, OCT − / +, ENTER and ◀ MENU ▶ in the middle of the transport row.
+**Not on the Box:** the VIBE FM's 25 keys, 16 pads, ENTER and ◀ MENU ▶ (`VB_LEFT`, `VB_MENU`, `VB_RIGHT`: a controller can still send them).
 Notes reach the Box over MIDI (the DIN socket, USB-C DATA, or a controller on USB-A HOST). With `vibe_notes(VIBE_NOTES)`
 your firmware gets them as `VIBE_EV_NOTE` from every source, so a firmware written for the keys plays on the Box as it is.
 
