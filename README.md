@@ -266,7 +266,7 @@ print the same `out_hash` as without.
 
 In VIBE FM VST and in the emulator, the mouse can work your display. With FOCUS (SDK 10), a single `vf_clicks(1)` in
 `vibe_on_init` makes your `vf_button`s clickable and your `vf_value`s draggable. A firmware with its own zones, such as
-tabs at the top, gets `VIBE_EV_TOUCH` with x and y. The VIBE has no touch screen, so a click is always an extra. Needs
+tabs at the top, gets `VIBE_EV_TOUCH` with x and y. The VIBE Box's display is a touch screen too; still, a click is always an extra: everything stays playable with the controls. Needs
 VIBE FM VST 0.7.1.
 
 ## New in SDK 19: one firmware, more than one device

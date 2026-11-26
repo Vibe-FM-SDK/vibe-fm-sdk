@@ -58,7 +58,7 @@
                                       (the plugin, the browser, an older VIBE) runs them in line, bit for bit the same.
                                       18 (31.10.2026): clicks into the display (VIBE_EV_TOUCH, x / y) – the plugin's and the
                                       browser's window, wherever the VIBE FM layout's zones (soft keys, knob columns) are not:
-                                      a firmware's own tabs at the top. The VIBE has no touch screen: it never sends one.
+                                      a firmware's own tabs at the top. (The VIBE Box's touch screen sends the same.)
                                       19 (1.11.2026): device layouts (docs/sdk-19-geraete-layouts.md) – "VIBE FM original"
                                       is the base every firmware must work with; a VIBE FM compatible device may have more
                                       (keys up to 61, encoders VE_X1-8, faders VIBE_EV_FADER, buttons VB_X1-16, pads up to
