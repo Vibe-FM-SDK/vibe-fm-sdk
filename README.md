@@ -31,6 +31,8 @@ WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your
 > the rules: <https://thefirmwarehub.com/lab/rules/>.
 > **What the Box looks like, every control and every jack with its name in your code: [HARDWARE.md](HARDWARE.md).**
 >
+> **How a Vibe should play – the start page, DATA for the sound, the sequencer on K6, everything without pads, clicks for free, your Vibe in 60 seconds: [UI-GUIDE.md](UI-GUIDE.md).**
+>
 > Early days: the SDK still grows, and new things are added, never taken away. Tell us what is missing, unclear or
 > broken: open an **issue** in this repository, or mail **zven@thefirmwarehub.com**
 

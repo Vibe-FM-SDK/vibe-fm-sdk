@@ -81,6 +81,8 @@ The host calls all four from **one thread, one after the other** – no locks, n
   `sdk/include/vibe_gfx.h`), HOME again / RETURN = close. The library (HOME held 1 s, SHIFT+HOME) is the host's.
   RETURN, not HOME, goes back to your start page.
 - Lights: `vibe_led_pad`, `vibe_led_button`; captions for F1–F6 and K1–K6: `vibe_label` (≤ 7 characters).
+- **Read UI-GUIDE.md** before you design the pages: the start page = playing page (RETURN goes there), DATA chooses the
+  sound, the sequencer on K6 and playable without pads, clicks via the house layout / `vf_clicks(1)` / `VIBE_EV_TOUCH`.
 - The house style for the six keys right of ENTER (K1–K6): **SOUND · ENV · LFO · ARP · FX · SEQ** where it fits; draw
   the page names on the display (the keys carry no print), full width, big type.
 

@@ -18,7 +18,7 @@ sample. Only a few things belong to the host, so you can always get out of any f
   `vibe_play_keys(0)` – then SHIFT + K is yours too.
 - **VOLUME:** the device's own level, no event at all.
 
-What the labels promise is a convention that makes Vibes feel alike – follow it where it fits, drop it where your
+How a Vibe should use them – the start page, DATA for the sound, the sequencer on K6, everything without pads: [UI-GUIDE.md](UI-GUIDE.md). What the labels promise is a convention that makes Vibes feel alike – follow it where it fits, drop it where your
 instrument wants something else, and say so on your screen (F1 – F6 captions, HOME's control overview).
 
 | # | On the panel | In your code |
@@ -34,7 +34,7 @@ instrument wants something else, and say so on your screen (F1 – F6 captions, 
 | 9 | DATA | `VE_DATA` to turn, `VB_DATA_PUSH` to press |
 | 10 | K1 – K6 | `VB_K1` … `VB_K6` – the colour keys, the firmware's areas (house style SOUND · ENV · LFO · ARP · FX · SEQ) |
 | 11 | A | `VE_A` – the track, or whatever the firmware shows for it |
-| 12 | B | `VE_B` – the sound, or whatever the firmware shows for it |
+| 12 | B | `VE_B` – the page within an area (house style), or whatever the firmware shows for it |
 
 All encoders are endless, with no LED rings: values belong on the display. Buttons come as `VIBE_EV_BUTTON` with
 `e->down` 1 / 0.

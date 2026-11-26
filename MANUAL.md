@@ -16,7 +16,7 @@ marked *(hardware)*.
 | **F1 – F6** | the soft keys under the display. Their captions are drawn on the display. |
 | **K1 – K6** | six colour keys right of ENTER: the firmware's areas. The house style is **SOUND · ENV · LFO · ARP · FX · SEQ**. |
 | **Encoders 1 – 4** | the four values shown on the display |
-| **Encoders A · B** | the track and the sound, or whatever the firmware shows for them |
+| **Encoders A · B** | the track and the page, or whatever the firmware shows for them |
 | **DATA** | the big wheel: turn it, press it (= ENTER) |
 | **SHIFT · OCT − / + · ENTER · ↩ RETURN · HOME** | as named. SHIFT gives many controls a second job. |
 | **◀ MENU ▶ · REC STOP PLAY** | MENU shows what every control does on the open page. |
