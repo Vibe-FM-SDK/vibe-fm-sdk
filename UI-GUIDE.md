@@ -2,13 +2,13 @@
 
 Every Vibe is your instrument, and you decide what it does. Players, though, pick up a new Vibe in seconds only if the
 basics work the same everywhere: where the track and the sound are chosen, where the sequencer lives, how to get back.
-This guide is that common ground. **MUST** is what every Vibe on the hub does. **SHOULD** is the house style: follow it
-where it fits.
+This guide is that common ground. It is a set of **recommendations, not rules**: none of it is required to be on the hub,
+and your instrument may need something else. Follow it where it fits.
 
 A good example of all of this is [KRACHT](https://sponde.de/kracht-vibe/#why): one start page, the sequencer on K6, a
 way through every step without pads, and a 60-second video.
 
-## MUST – every Vibe
+## The common ground – what we'd love every Vibe to do
 
 1. **The start page is the playing page.** It shows the sound's name, big, and the four values of encoders 1–4.
    **RETURN** always brings you back to it.
@@ -29,7 +29,7 @@ way through every step without pads, and a 60-second video.
 7. **Everything works without pads and keys.** The [VIBE Box](HARDWARE.md) has neither. Notes come in over MIDI, and
    every page, step and mute is reachable with the encoders and buttons. The pads are a faster way, never the only way.
 
-## SHOULD – the house style
+## The house style
 
 - **K1–K6: SOUND · ENV · LFO · ARP · FX · SEQ**, where your instrument has these areas. Draw the page name on the
   display (the keys carry no print).
@@ -60,7 +60,7 @@ A short video does more than any manual: **start · the first sound · the seque
 [fmhub.json](https://thefirmwarehub.com/kb/#fmhub) as `"video"` (an MP4 in your repository, or YouTube). The hub shows
 it on your Vibe's page.
 
-## Before you submit
+## A quick check before you submit (optional)
 
 - [ ] The start page shows the sound and the four values, and RETURN leads there.
 - [ ] A the track, B the sound, DATA the pattern. HOME shows the controls. F1–F6 have captions. SHIFT + K1–K6 play notes.
