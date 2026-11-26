@@ -1,7 +1,7 @@
 # UI-GUIDE.md – how a Vibe plays
 
 Every Vibe is your instrument, and you decide what it does. Players, though, pick up a new Vibe in seconds only if the
-basics work the same everywhere: where the sound is chosen, where the sequencer lives, how to get back.
+basics work the same everywhere: where the track and the sound are chosen, where the sequencer lives, how to get back.
 This guide is that common ground. **MUST** is what every Vibe on the hub does. **SHOULD** is the house style: follow it
 where it fits.
 
@@ -12,12 +12,15 @@ way through every step without pads, and a 60-second video.
 
 1. **The start page is the playing page.** It shows the sound's name, big, and the four values of encoders 1–4.
    **RETURN** always brings you back to it.
-2. **DATA chooses the sound.** On the start page, turning DATA steps through the sounds (presets, kits, programs), and
-   pressing DATA chooses or confirms. In a list (files, songs), DATA moves through it and pressing opens.
+2. **A chooses the track, B its sound, DATA the pattern** – as in OberVave, on every page. A steps through the tracks
+   (or parts), B through the sounds of that track (presets, kits, programs), DATA through the patterns (the sequences).
+   Pressing DATA chooses or confirms. In a list (files, songs), DATA moves through it and pressing opens.
 3. **HOME, tapped, shows what every control does on this page** (`vg_controls`). Held for 1 s it opens the library,
    which belongs to the host.
 4. **F1–F6 always carry a caption** on the display (`vibe_label`, at most 7 characters), right above the keys.
 5. **REC · STOP · PLAY are the transport, and − / + are the octave** (`VB_OCT_DOWN` / `VB_OCT_UP`).
+   **SHIFT + K1–K6 play notes**, like a small keyboard: the host's PLAY KEYS, the VIBE's key and scale. Your Vibe gets
+   them as notes, so leave them free (or turn them off with `vibe_play_keys(0)` when K1–K6 must play something else).
 6. **If your Vibe has a sequencer, it lives on K6 "SEQ"**, and it works without pads:
    - **A** chooses the step.
    - **B** sets its value (off / hit / accent, or the note).
@@ -30,15 +33,14 @@ way through every step without pads, and a 60-second video.
 
 - **K1–K6: SOUND · ENV · LFO · ARP · FX · SEQ**, where your instrument has these areas. Draw the page name on the
   display (the keys carry no print).
-- **A = the track (or part), B = the page within an area** (ENV 1 / ENV 2, FX A / FX B). DATA already chooses the sound.
 - **Encoders 1–4 in the same order as the values on the display**, left to right, on every page.
 - **SHIFT gives a second job.** Keep it the same across pages (SHIFT + − / + for the program, for example).
   SHIFT + K1–K6 and SHIFT + HOME belong to the host.
 
-## Clicks and touch for free
+## Touch for free
 
-The VIBE has no touch screen, but the web player and VIBE FM VST plugin let people click and drag the display. They
-can only do that well if they know where things are:
+The VIBE Box's display is a touch screen, and the web player and VIBE FM VST plugin take clicks and drags on it too.
+They can only do the right thing if they know where things are:
 
 - **Draw the house layout and it works by itself.** Soft keys go in the strip at the bottom (y 282–320, six fields of
   80 px). The four values go in four columns side by side above them (x 10–470, 115 px each). A click on a soft key
@@ -61,7 +63,7 @@ it on your Vibe's page.
 ## Before you submit
 
 - [ ] The start page shows the sound and the four values, and RETURN leads there.
-- [ ] DATA chooses the sound. HOME shows the controls. F1–F6 have captions.
+- [ ] A the track, B the sound, DATA the pattern. HOME shows the controls. F1–F6 have captions. SHIFT + K1–K6 play notes.
 - [ ] The sequencer (if any) is on K6 and works without pads.
 - [ ] Every page is reachable without pads and keys.
 - [ ] Clicks land where things are drawn (house layout, `vf_clicks(1)` or `VIBE_EV_TOUCH`).
