@@ -222,7 +222,7 @@ Your Vibe's 480 × 320 display can be touched or clicked wherever it runs:
 | VIBE Box | its touch screen |
 | VIBE with an iPad | the VIBE's panel page (USB-C cable or Wi-Fi), a finger each |
 
-It is the same event everywhere, and the same `.wasm`. This page says what the host does for you, what your Vibe should
+It is the same event everywhere, and the same `.wasm`. This chapter says what the host does for you, what your Vibe should
 answer itself, and how the knobs of a remote follow your values (SDK 29).
 
 These are recommendations, as everything in [UI-GUIDE.md](UI-GUIDE.md): nothing here is required on the hub. But a
