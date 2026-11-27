@@ -260,7 +260,9 @@ function touchRun(h) {
     h.inAudio = false; x.vibe_wasm_init(SR);
     const blocks = (n) => { for (let b = 0; b < n; b++) { h.inAudio = true; x.vibe_wasm_audio(BLOCK, 0); h.inAudio = false; } };
     const pic = () => { const p = x.vibe_wasm_draw(), u = new Uint32Array(x.memory.buffer, p, 480 * 320 / 2); let k = 0; for (let i = 0; i < u.length; i++) k = (k * 31 + u[i]) >>> 0; return k; };
-    blocks(Math.ceil(2 * SR / BLOCK)); let last = pic(); blocks(32); const still = pic() === last; last = pic();
+    blocks(Math.ceil(2 * SR / BLOCK));
+    x.vibe_wasm_event(3, 16, 1, 0, 0); blocks(8); x.vibe_wasm_event(3, 16, 0, 0, 0); blocks(48);   // (RETURN: past a start screen, to the start page)
+    let last = pic(); blocks(32); const still = pic() === last; last = pic();
     let rings = 0;
     if (x.vibe_wasm_leds) { const f = new Float32Array(x.memory.buffer, x.vibe_wasm_leds(), 96); for (let e = 0; e < 7; e++) if (f[89 + e] >= 2) rings++; }
     let taps = 0;
