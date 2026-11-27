@@ -251,7 +251,7 @@ function homeRun(h) {
     return { lib: h.requests.includes(1), changed: pic() !== before };
   } catch (e) { return null; }
 }
-// (SDK 29, TOUCH.md) a tap on the tab row under the header (y 40-68, eight places across): does the display answer? And
+// (SDK 29, README "Touch") a tap on the tab row under the header (y 40-68, eight places across): does the display answer? And
 // does the firmware say where its knobs stand (vibe_led_ring: the lights' ring_bipolar, floats 89..95 of the block)?
 // { still: the picture rests without events, taps: places that changed it, rings: encoders with a position }
 function touchRun(h) {
@@ -324,12 +324,12 @@ if (r1.trap && process.env.VIBE_STACK) console.error(r1.stack);
   if (hr) check('HOME', !hr.lib && hr.changed ? true : hr.lib ? false : null, hr.lib ? 'HOME tapped opens the library – the host does that (HOME held 1 s / SHIFT+HOME). HOME tapped SHOULD show what every key, knob and pad on this page does: vg_controls() draws it in one call (Protocol 3.2)'
     : hr.changed ? 'HOME tapped shows something (the controls)' : 'HOME tapped does not change the display – it SHOULD show the controls (vg_controls, Protocol 3.2)');
 }
-{ // SDK 29 (TOUCH.md): hints only – a SHOULD, and not every firmware has tabs
+{ // SDK 29 (README: Touch): hints only – a SHOULD, and not every firmware has tabs
   const tr = touchRun(host(new Map()));
   if (tr) {
-    if (!tr.still) check('Touch', null, 'the display moves by itself – the tap on the tab row was not judged (TOUCH.md)');
-    else check('Touch', tr.taps ? true : null, tr.taps ? `a tap on the tab row (y 40-68) answers at ${tr.taps} of 8 places` : 'a tap on the tab row under the header (y 40-68) changes nothing – tabs there SHOULD open on a tap (TOUCH.md)');
-    check('Touch', tr.rings ? true : null, tr.rings ? `says where ${tr.rings} encoder${tr.rings === 1 ? '' : 's'} stand${tr.rings === 1 ? 's' : ''} (vibe_led_ring)` : 'does not say where its knobs stand – vibe_led_ring in vibe_on_draw lets a remote\'s knobs turn along (TOUCH.md)');
+    if (!tr.still) check('Touch', null, 'the display moves by itself – the tap on the tab row was not judged (README: Touch)');
+    else check('Touch', tr.taps ? true : null, tr.taps ? `a tap on the tab row (y 40-68) answers at ${tr.taps} of 8 places` : 'a tap on the tab row under the header (y 40-68) changes nothing – tabs there SHOULD open on a tap (README: Touch)');
+    check('Touch', tr.rings ? true : null, tr.rings ? `says where ${tr.rings} encoder${tr.rings === 1 ? '' : 's'} stand${tr.rings === 1 ? 's' : ''} (vibe_led_ring)` : 'does not say where its knobs stand – vibe_led_ring in vibe_on_draw lets a remote\'s knobs turn along (README: Touch)');
   }
 }
 { // Protokoll 3.2: buttons by `down` alone – a host sends value 0 with every button

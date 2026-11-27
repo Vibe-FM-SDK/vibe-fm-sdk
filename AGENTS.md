@@ -207,7 +207,7 @@ with `vibe_param_set` (compare once per block). Never write controller-specific 
   keys (y 282–320) never send one. On the knob columns, a drag turns the knob and a plain click arrives as DOWN + UP.
 - A click is always an extra: everything stays playable with the controls. Needs VIBE FM VST 0.7.1.
 
-## SDK 29: touch that people expect (`TOUCH.md`)
+## SDK 29: touch that people expect (README, "Touch")
 
 - Make the tab row under the header (y 40–68) tappable: on `VIBE_EV_TOUCH` with `VIBE_TOUCH_DOWN`, open the tab at x.
   The same for track letters in the header and for list rows (select what is tapped), and for steps (toggle).

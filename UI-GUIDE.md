@@ -56,7 +56,7 @@ They can only do the right thing if they know where things are:
 - **Not four columns?** Faders, flat bars or a waveform take every drag themselves with `"touch": "drag"`.
 
 A Vibe that draws its values one under another, or a grid, and does neither of these, gets clicks in the wrong place.
-People then think touch is broken. **[TOUCH.md](TOUCH.md)** has the zones, the code and a check list.
+People then think touch is broken. **[the guide's Touch chapter](README.md#touch-one-display-every-host)** has the zones, the code and a check list.
 
 ## Your Vibe in 60 seconds
 
@@ -72,6 +72,6 @@ it on your Vibe's page.
 - [ ] The sequencer (if any) is on K6 and works without pads.
 - [ ] Every page is reachable without pads and keys.
 - [ ] Clicks land where things are drawn (house layout, `vf_clicks(1)` or `VIBE_EV_TOUCH`).
-- [ ] Tabs, track letters and list rows answer a tap ([TOUCH.md](TOUCH.md)); the knobs say where they stand (`vibe_led_ring`).
+- [ ] Tabs, track letters and list rows answer a tap ([the guide's Touch chapter](README.md#touch-one-display-every-host)); the knobs say where they stand (`vibe_led_ring`).
 - [ ] `vibe-check` passes.
 - [ ] A 60-second video, linked in fmhub.json (recommended).

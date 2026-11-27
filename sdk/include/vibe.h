@@ -103,7 +103,7 @@
                                        a firmware's own KEY (its GLOBAL page) the one SHIFT + K plays; a firmware with a K-key
                                        mode of its own says vibe_play_keys(0) or "play_keys": false in its card. No new
                                        import (ops 16 / 17 / 18 of vibe_host_store): an older host answers -1 – C MAJOR.
-                                      29 (27.11.2026, TOUCH.md): touch everywhere – the VIBE takes it from its panel page
+                                      29 (27.11.2026, README "Touch"): touch everywhere – the VIBE takes it from its panel page
                                        (an iPad at the USB-C cable, a browser), as the plugin and the web player do.
                                        vibe_led_ring() works again – not LEDs but where encoder 1-4 / A / B / DATA stands:
                                        a remote's knobs beside the display turn to it (say it in vibe_on_draw, every frame,
@@ -181,7 +181,7 @@ typedef enum {
                            the soft keys (y 282-320: F1-F6); on the knob columns (y 40-282) a drag turns the knob and a plain
                            click comes as DOWN + UP when let go. Only for a firmware of the VIBE FM layout (sound parameters
                            or named soft keys).
-                           SDK 29 – what a firmware SHOULD answer (TOUCH.md): a tap on its tab row under the header
+                           SDK 29 – what a firmware SHOULD answer (README "Touch"): a tap on its tab row under the header
                            (y 40-68) opens that tab (sub-page, mixer row, view, file kind), on a track letter selects
                            the track, on a list row (tracks, files, patterns) selects it. Act on DOWN at its place.
                            Everything stays reachable with keys and encoders – the tap is the short way. */

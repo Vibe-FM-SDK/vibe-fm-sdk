@@ -4,7 +4,7 @@
  *   keys  -> a sine tone (one voice), velocity = loudness
  *   pads  -> light up in their colour while held
  *   encoder 1 -> pitch bend, display shows what happens (and says where the knob stands: vibe_led_ring)
- *   K1 / K2   -> SINE / SQUARE – and the same by a tap on the two tabs under the header (touch, TOUCH.md)
+ *   K1 / K2   -> SINE / SQUARE – and the same by a tap on the two tabs under the header (touch: README "Touch")
  *   HOME      -> what every control does (every firmware: HOME tapped = this overview; HOME held 1 s or SHIFT+HOME =
  *                the firmware library – the host does that, never call VIBE_REQ_FIRMWARE_MENU for HOME)
  */
