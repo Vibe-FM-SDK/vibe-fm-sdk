@@ -27,7 +27,7 @@ instrument wants something else, and say so on your screen (F1 – F6 captions, 
 | 2 | RETURN | `VB_RETURN` |
 | 3 | HOME | `VB_HOME` (tapped: show what every control does on this page). Held 1 s, or SHIFT + HOME: the host opens the firmware library – never your firmware |
 | 4 | SHIFT | `VB_SHIFT` – a second job for many controls |
-| 5 | Display | 4.0", 480 × 320, colour: `VIBE_SCREEN_W` × `VIBE_SCREEN_H`, drawn in `vibe_on_draw` |
+| 5 | Display | 4.0", 480 × 320, colour, **a touch screen**: `VIBE_SCREEN_W` × `VIBE_SCREEN_H`, drawn in `vibe_on_draw`. A tap or drag comes as `VIBE_EV_TOUCH` (x, y in display pixels); the soft keys and the four value columns work by themselves – [Touch](README.md#touch-one-display-every-host) |
 | 6 | F1 – F6 | `VB_F1` … `VB_F6` – soft keys right under the screen, their captions are yours to draw |
 | 7 | − + REC STOP PLAY | `VB_OCT_DOWN` (−), `VB_OCT_UP` (+), `VB_REC`, `VB_STOP`, `VB_PLAY` – − / + are the octave keys, as OCT − / OCT + on the VIBE FM |
 | 8 | Encoders 1 – 4 | `VE_1` … `VE_4` (`VIBE_EV_ENCODER`, value = detents, + clockwise) – the four values on the screen |
@@ -36,7 +36,8 @@ instrument wants something else, and say so on your screen (F1 – F6 captions, 
 | 11 | A | `VE_A` – the track, or whatever the firmware shows for it |
 | 12 | B | `VE_B` – the sound, or whatever the firmware shows for it |
 
-All encoders are endless, with no LED rings: values belong on the display. Buttons come as `VIBE_EV_BUTTON` with
+All encoders are endless, with no LED rings: values belong on the display. (Say where each one stands with
+`vibe_led_ring` – a remote that draws the knobs, as the VIBE's iPad page, turns them along.) Buttons come as `VIBE_EV_BUTTON` with
 `e->down` 1 / 0.
 
 **Not on the Box:** the VIBE FM's 25 keys, 16 pads, ENTER and ◀ MENU ▶ (`VB_LEFT`, `VB_MENU`, `VB_RIGHT`: a controller can still send them).
