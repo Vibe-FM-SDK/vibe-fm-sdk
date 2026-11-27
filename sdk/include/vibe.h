@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <stddef.h>
 
-#define VIBE_SDK_VERSION 28       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
+#define VIBE_SDK_VERSION 29       /* 2 (16.10.2026): IN 1/IN 2, PEDAL, CV/Gate, CLK IN; no LED rings.
                                       3 (20.10.2026): storage (vibe_store_*).
                                       4 (21.10.2026): vibe_store_list, vibe_store_read_at (big files, e.g. music).
                                       5 (21.10.2026): time (vibe_frames, vibe_event_heard, latency), two flows
@@ -102,7 +102,16 @@
                                        reads the KEY / SCALE (a firmware's own scale can start from it), vibe_scale_set() makes
                                        a firmware's own KEY (its GLOBAL page) the one SHIFT + K plays; a firmware with a K-key
                                        mode of its own says vibe_play_keys(0) or "play_keys": false in its card. No new
-                                       import (ops 16 / 17 / 18 of vibe_host_store): an older host answers -1 – C MAJOR. */
+                                       import (ops 16 / 17 / 18 of vibe_host_store): an older host answers -1 – C MAJOR.
+                                      29 (27.11.2026, TOUCH.md): touch everywhere – the VIBE takes it from its panel page
+                                       (an iPad at the USB-C cable, a browser), as the plugin and the web player do.
+                                       vibe_led_ring() works again – not LEDs but where encoder 1-4 / A / B / DATA stands:
+                                       a remote's knobs beside the display turn to it (say it in vibe_on_draw, every frame,
+                                       for each knob shown; nothing said = a free endless knob). And what a firmware
+                                       SHOULD make tappable (VIBE_EV_TOUCH): the tab row under the header (y 40-68: the
+                                       page's sub-pages, a mixer's rows, the views), the track letters in the header,
+                                       list rows (tracks, files) – a tap does what turning / pressing there would. Nothing
+                                       new to import; an older firmware runs as before (its knobs turn free). */
 #define VIBE_HOST_PROTOCOL 7       /* what a host must speak to run a firmware of this SDK – reported by vibe_sdk_version().
                                       SDK 8's additions (notes, parameters) need nothing new from a host: the notes are made
                                       inside the firmware, the parameters are optional exports a host finds by name. So an
@@ -166,11 +175,16 @@ typedef enum {
                            the bytes in vibe_sysex_in() – valid during this event only */
   VIBE_EV_EDITOR_DATA = 15,   /* SDK 16: bytes from your own Editor page (vibe.send in its JavaScript): value = their
                            length, the bytes in vibe_editor_data() – valid during this event only */
-  VIBE_EV_TOUCH = 16,   /* SDK 18: a click into the display (plugin, browser – never on the VIBE): id VIBE_TOUCH_DOWN / _MOVE /
+  VIBE_EV_TOUCH = 16,   /* SDK 18: a click into the display (plugin, browser; the VIBE: its touch screen, its panel page on an
+                           iPad): id VIBE_TOUCH_DOWN / _MOVE /
                            _UP, down 1 while held, value = y * 512 + x in display pixels (VIBE_TOUCH_X / VIBE_TOUCH_Y). Not on
                            the soft keys (y 282-320: F1-F6); on the knob columns (y 40-282) a drag turns the knob and a plain
                            click comes as DOWN + UP when let go. Only for a firmware of the VIBE FM layout (sound parameters
-                           or named soft keys) */
+                           or named soft keys).
+                           SDK 29 – what a firmware SHOULD answer (TOUCH.md): a tap on its tab row under the header
+                           (y 40-68) opens that tab (sub-page, mixer row, view, file kind), on a track letter selects
+                           the track, on a list row (tracks, files, patterns) selects it. Act on DOWN at its place.
+                           Everything stays reachable with keys and encoders – the tap is the short way. */
   VIBE_EV_FADER = 17,   /* SDK 19: a device's fader or pot (vibe_device: faders), id 0..15, value its position 0..1 (absolute) */
   VIBE_EV_SAVE = 18,    /* SDK 21: the host keeps your state NOW (a DAW saves its project or a preset; later the VIBE before it
                            switches off): write with vibe_store_write, in this call, all you want back after a restart – which
@@ -287,9 +301,11 @@ void vibe_link_encoder(int encoder, const char *name, const char *value);
    when the picture changed (or every frame: the host sends only the rows that changed); px must stay valid (static).
    NULL = none any more (back to the page and the encoders). A converted FM-1 firmware does it by itself (tools/fm1). */
 void vibe_link_screen(const uint16_t *px);
-void vibe_led_ring(int encoder, float value, int bipolar);              /* obsolete: the device has no LED rings
-                                                                           (15.10.2026). Does nothing, kept so
-                                                                           SDK-1 firmwares still build. */
+/* where an encoder stands (SDK 29; was a no-op – the device has no LED rings): a remote with knobs beside the display
+   (the VIBE's iPad page) turns its knob to it. value 0..1, bipolar 1 = 0.5 is the middle. Say it in vibe_on_draw, every
+   frame, for each encoder that has a value on this page (as vibe_link_encoder); one not said this frame is a free
+   endless knob. */
+void vibe_led_ring(int encoder, float value, int bipolar);
 
 /* ---- notes (SDK 8): one way for the keys, the pads, MIDI and the host's notes -------------------------------------
    vibe_notes(VIBE_NOTES) in vibe_on_init: from then on the firmware gets VIBE_EV_NOTE instead of key events and MIDI

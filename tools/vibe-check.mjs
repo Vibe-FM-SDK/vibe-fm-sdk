@@ -251,6 +251,27 @@ function homeRun(h) {
     return { lib: h.requests.includes(1), changed: pic() !== before };
   } catch (e) { return null; }
 }
+// (SDK 29, TOUCH.md) a tap on the tab row under the header (y 40-68, eight places across): does the display answer? And
+// does the firmware say where its knobs stand (vibe_led_ring: the lights' ring_bipolar, floats 89..95 of the block)?
+// { still: the picture rests without events, taps: places that changed it, rings: encoders with a position }
+function touchRun(h) {
+  const x = h.inst.exports;
+  try {
+    h.inAudio = false; x.vibe_wasm_init(SR);
+    const blocks = (n) => { for (let b = 0; b < n; b++) { h.inAudio = true; x.vibe_wasm_audio(BLOCK, 0); h.inAudio = false; } };
+    const pic = () => { const p = x.vibe_wasm_draw(), u = new Uint32Array(x.memory.buffer, p, 480 * 320 / 2); let k = 0; for (let i = 0; i < u.length; i++) k = (k * 31 + u[i]) >>> 0; return k; };
+    blocks(Math.ceil(2 * SR / BLOCK)); let last = pic(); blocks(32); const still = pic() === last; last = pic();
+    let rings = 0;
+    if (x.vibe_wasm_leds) { const f = new Float32Array(x.memory.buffer, x.vibe_wasm_leds(), 96); for (let e = 0; e < 7; e++) if (f[89 + e] >= 2) rings++; }
+    let taps = 0;
+    for (let i = 0; i < 8; i++) {
+      const v = 54 * 512 + 40 + i * 57;
+      x.vibe_wasm_event(16, 0, 1, v, 0); x.vibe_wasm_event(16, 2, 0, v, 0); blocks(24);
+      const now = pic(); if (now !== last) taps++; last = now;
+    }
+    return { still, taps, rings };
+  } catch (e) { return null; }
+}
 // random events of every type, out-of-range ids, unknown types, releases without a press (section 7)
 function fuzzEvent(x0, held) {
   const x = { vibe_wasm_event: (...a) => { last.push(a); if (last.length > 6) last.shift(); x0.vibe_wasm_event(...a); } };
@@ -300,6 +321,14 @@ if (r1.trap && process.env.VIBE_STACK) console.error(r1.stack);
   const hr = homeRun(host(new Map()));
   if (hr) check('HOME', !hr.lib && hr.changed ? true : hr.lib ? false : null, hr.lib ? 'HOME tapped opens the library – the host does that (HOME held 1 s / SHIFT+HOME). HOME tapped SHOULD show what every key, knob and pad on this page does: vg_controls() draws it in one call (Protocol 3.2)'
     : hr.changed ? 'HOME tapped shows something (the controls)' : 'HOME tapped does not change the display – it SHOULD show the controls (vg_controls, Protocol 3.2)');
+}
+{ // SDK 29 (TOUCH.md): hints only – a SHOULD, and not every firmware has tabs
+  const tr = touchRun(host(new Map()));
+  if (tr) {
+    if (!tr.still) check('Touch', null, 'the display moves by itself – the tap on the tab row was not judged (TOUCH.md)');
+    else check('Touch', tr.taps ? true : null, tr.taps ? `a tap on the tab row (y 40-68) answers at ${tr.taps} of 8 places` : 'a tap on the tab row under the header (y 40-68) changes nothing – tabs there SHOULD open on a tap (TOUCH.md)');
+    check('Touch', tr.rings ? true : null, tr.rings ? `says where ${tr.rings} encoder${tr.rings === 1 ? '' : 's'} stand${tr.rings === 1 ? 's' : ''} (vibe_led_ring)` : 'does not say where its knobs stand – vibe_led_ring in vibe_on_draw lets a remote\'s knobs turn along (TOUCH.md)');
+  }
 }
 { // Protokoll 3.2: buttons by `down` alone – a host sends value 0 with every button
   const n0 = buttonRun(host(new Map()), 0), n9 = buttonRun(host(new Map()), 0.9);

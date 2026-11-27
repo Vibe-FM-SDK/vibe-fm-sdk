@@ -198,7 +198,7 @@ with `vibe_param_set` (compare once per block). Never write controller-specific 
 - -1 = gone (a stick pulled): show it, never crash. `VIBE_MEDIA_EV_SOURCES` says a source came or went.
 - Example: `examples/example-media`. `vibe-check` pulls a stick halfway through its run.
 
-## SDK 18: clicks into the display (plugin and emulator, never the VIBE)
+## SDK 18: clicks into the display (plugin, web player, the VIBE's touch screen and iPad page)
 
 - With FOCUS, add `vf_clicks(1)` in `vibe_on_init`. A click then presses a `vf_button`, sets a slider-shaped `vf_value`
   (at least three times as wide as high) where it is clicked or dragged, and edits a smaller value with a vertical drag.
@@ -206,6 +206,17 @@ with `vibe_param_set` (compare once per block). Never write controller-specific 
 - Your own zones: `VIBE_EV_TOUCH` (id `VIBE_TOUCH_DOWN` / `_MOVE` / `_UP`, `VIBE_TOUCH_X(e)`, `VIBE_TOUCH_Y(e)`). The soft
   keys (y 282–320) never send one. On the knob columns, a drag turns the knob and a plain click arrives as DOWN + UP.
 - A click is always an extra: everything stays playable with the controls. Needs VIBE FM VST 0.7.1.
+
+## SDK 29: touch that people expect (`TOUCH.md`)
+
+- Make the tab row under the header (y 40–68) tappable: on `VIBE_EV_TOUCH` with `VIBE_TOUCH_DOWN`, open the tab at x.
+  The same for track letters in the header and for list rows (select what is tapped), and for steps (toggle).
+- Act on DOWN, never wait for MOVE: in the knob columns a tap arrives as DOWN + UP when the finger lifts.
+- Compute the fields from the same geometry the draw uses, and call the function the key or encoder calls.
+- In `vibe_on_draw`, every frame, for each encoder with a value on the page: `vibe_led_ring(VE_n, value01, bipolar)`.
+- A layout that is not four value columns (faders, flat bars, a waveform): `"touch": "drag"` in `firmware.json`, then
+  handle DOWN / MOVE / UP yourself and keep the four bottom values draggable.
+- Touch is the short way, never the only way. `examples/hello` is the pattern.
 
 ## SDK 19: other devices (`DEVICES.md`)
 

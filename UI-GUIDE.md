@@ -50,8 +50,13 @@ They can only do the right thing if they know where things are:
 - **Your own zones (a step grid, circles, a mixer)** come as `VIBE_EV_TOUCH` with x and y. A tap on a step can switch
   it on or off, which is the most natural thing on a screen.
 
+- **Tabs, track letters and list rows should answer a tap** (SDK 29). People reach for the tabs first: a tap on the
+  tab row under the header opens that tab, a tap on a track selects it. A few lines on `VIBE_TOUCH_DOWN`.
+- **Say where your knobs stand** with `vibe_led_ring` while you draw. The knobs of the VIBE's iPad page turn along.
+- **Not four columns?** Faders, flat bars or a waveform take every drag themselves with `"touch": "drag"`.
+
 A Vibe that draws its values one under another, or a grid, and does neither of these, gets clicks in the wrong place.
-People then think touch is broken.
+People then think touch is broken. **[TOUCH.md](TOUCH.md)** has the zones, the code and a check list.
 
 ## Your Vibe in 60 seconds
 
@@ -67,5 +72,6 @@ it on your Vibe's page.
 - [ ] The sequencer (if any) is on K6 and works without pads.
 - [ ] Every page is reachable without pads and keys.
 - [ ] Clicks land where things are drawn (house layout, `vf_clicks(1)` or `VIBE_EV_TOUCH`).
+- [ ] Tabs, track letters and list rows answer a tap ([TOUCH.md](TOUCH.md)); the knobs say where they stand (`vibe_led_ring`).
 - [ ] `vibe-check` passes.
 - [ ] A 60-second video, linked in fmhub.json (recommended).

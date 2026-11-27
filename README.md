@@ -31,6 +31,8 @@ WebAssembly file. That one `.wasm` runs as a **VST3 / AU / CLAP plugin** in your
 > the rules: <https://thefirmwarehub.com/lab/rules/>.
 > **What the Box looks like, every control and every jack with its name in your code: [HARDWARE.md](HARDWARE.md).**
 >
+> **Touch on every host – what you get for free, what your Vibe should make tappable (tabs, tracks, rows), knobs that follow your values: [TOUCH.md](TOUCH.md).**
+>
 > **How a Vibe should play – the start page, A track / B sound / DATA pattern, the sequencer on K6, everything without pads, clicks for free, your Vibe in 60 seconds: [UI-GUIDE.md](UI-GUIDE.md).**
 >
 > Early days: the SDK still grows, and new things are added, never taken away. Tell us what is missing, unclear or
@@ -268,6 +270,20 @@ In VIBE FM VST and in the emulator, the mouse can work your display. With FOCUS 
 `vibe_on_init` makes your `vf_button`s clickable and your `vf_value`s draggable. A firmware with its own zones, such as
 tabs at the top, gets `VIBE_EV_TOUCH` with x and y. The VIBE Box's display is a touch screen too; still, a click is always an extra: everything stays playable with the controls. Needs
 VIBE FM VST 0.7.1.
+
+## New in SDK 29 (27 November): touch everywhere – and knobs that follow
+
+The same touch event now comes on every host: the plugin and the web player (mouse), the VIBE Box (its touch screen) and
+the VIBE with an iPad as its remote. Two things for your firmware, both a few lines:
+
+- **Make your tabs tappable.** A tap on the tab row under the header (y 40–68) should open that tab; a tap on a track
+  letter or a list row should select it. Answer `VIBE_EV_TOUCH` on `VIBE_TOUCH_DOWN`.
+- **Say where your knobs stand:** `vibe_led_ring(VE_1, value, bipolar)` in `vibe_on_draw`, every frame. The iPad page's
+  knobs turn to it. (The function did nothing since SDK 2; an older firmware runs as before.)
+
+A layout that is not four columns (faders, flat bars, a waveform) takes every drag itself with `"touch": "drag"` in its
+`firmware.json`. **[TOUCH.md](TOUCH.md)** has the zones, the code and a check list; `examples/hello` shows it in 75 lines.
+Nothing new to import – every host that runs SDK 18 runs this.
 
 ## New in SDK 19: one firmware, more than one device
 

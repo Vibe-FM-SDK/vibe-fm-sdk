@@ -29,7 +29,15 @@ void vibe_led_pad(int p, uint32_t rgb, float level)
   padx.rgb[p] = rgb; padx.lvl[p] = level; if ((uint32_t)p >= padx.n) padx.n = (uint32_t)p + 1;
 }
 void vibe_led_button(int b, uint32_t rgb, float level) { if (b >= 0 && b < VB_COUNT) { leds.btn_rgb[b] = rgb; leds.btn_lvl[b] = level; } }
-void vibe_led_ring(int e, float v, int bipolar) { (void)e; (void)v; (void)bipolar; }   /* no rings on the device */
+/* (27.11.2026) the rings again – not LEDs (the device has none) but the knobs a remote draws beside the display (the iPad
+   page): where an encoder stands now. ring_bipolar: 0 = none this frame (a free endless knob), 2 = 0..1, 3 = bipolar
+   (0.5 the middle) – an older firmware leaves 0 there. Said while drawing, every frame, as Link; vibe_wasm_draw clears it. */
+void vibe_led_ring(int e, float v, int bipolar)
+{
+  if (e < 0 || e >= VE_COUNT) return;
+  leds.ring[e] = v < 0 ? 0 : v > 1 ? 1 : v; leds.ring_bipolar[e] = bipolar ? 3.0f : 2.0f;
+}
+static void ring_begin(void) { for (int e = 0; e < VE_COUNT; e++) leds.ring_bipolar[e] = 0; }
 static char labels[VB_COUNT][8];
 void vibe_label(int b, const char *t) { if (b < 0 || b >= VB_COUNT) return; int i = 0; for (; t && t[i] && i < 7; i++) labels[b][i] = t[i]; labels[b][i] = 0; }
 
@@ -1097,7 +1105,7 @@ VIBE_EXPORT(vibe_wasm_audio) void vibe_wasm_audio(int frames, int has_input) {
   }
 }
 VIBE_EXPORT(vibe_wasm_rear) void *vibe_wasm_rear(void) { return &rear; }
-VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); link_begin(); vg_begin(framebuffer); vibe_on_draw(framebuffer); vg_begin(framebuffer); sk_draw(); link_end(); return framebuffer; }
+VIBE_EXPORT(vibe_wasm_draw) uint16_t *vibe_wasm_draw(void) { vf_hold_check(); link_begin(); ring_begin(); vg_begin(framebuffer); vibe_on_draw(framebuffer); vg_begin(framebuffer); sk_draw(); link_end(); return framebuffer; }
 
 /* ---- SDK 23: the stage – a second, bigger picture the firmware draws itself (docs/sdk-23-buehne.md, Protokoll 9.5) ---- */
 static struct { uint16_t w, h; uint32_t background; uint8_t want, flags, pad[2]; } stage_info;   /* (the host reads it once after init) */

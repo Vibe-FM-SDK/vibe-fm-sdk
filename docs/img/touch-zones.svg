@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 520 360" font-family="Helvetica, Arial, sans-serif" font-size="12">
+  <rect width="520" height="360" fill="#0B1220"/>
+  <g transform="translate(20,20)">
+    <rect width="480" height="320" fill="#111827" stroke="#3B4660"/>
+    <rect x="0" y="0" width="480" height="40" fill="#1F2A44"/>
+    <text x="12" y="25" fill="#E6EAF2" font-weight="bold">HEADER  y 0–40</text>
+    <text x="468" y="25" fill="#9AA5BD" text-anchor="end">a tap is yours: track letters, your own tabs</text>
+    <rect x="10" y="41" width="460" height="27" rx="5" fill="#FF6A1A" fill-opacity=".85"/>
+    <text x="240" y="59" fill="#000" font-weight="bold" text-anchor="middle">TAB ROW  y 40–68 · a tap opens the tab (you answer VIBE_EV_TOUCH)</text>
+    <g fill="#2BFFB4" fill-opacity=".10" stroke="#2BFFB4" stroke-opacity=".6" stroke-dasharray="4 3">
+      <rect x="10" y="70" width="115" height="210"/><rect x="125" y="70" width="115" height="210"/>
+      <rect x="240" y="70" width="115" height="210"/><rect x="355" y="70" width="115" height="210"/>
+    </g>
+    <g fill="#2BFFB4" text-anchor="middle" font-weight="bold">
+      <text x="67" y="150">ENCODER 1</text><text x="182" y="150">ENCODER 2</text><text x="297" y="150">ENCODER 3</text><text x="412" y="150">ENCODER 4</text>
+    </g>
+    <text x="240" y="180" fill="#9AA5BD" text-anchor="middle">knob columns · x 10–470, 115 px each, from y 40</text>
+    <text x="240" y="198" fill="#9AA5BD" text-anchor="middle">drag up / down = the host turns that encoder (5 px a detent)</text>
+    <text x="240" y="216" fill="#9AA5BD" text-anchor="middle">a tap without a drag = VIBE_EV_TOUCH, DOWN + UP when the finger lifts</text>
+    <rect x="0" y="282" width="480" height="38" fill="#1F2A44"/>
+    <g fill="#3B2A6B" stroke="#8B5CF6">
+      <rect x="3" y="286" width="74" height="30" rx="5"/><rect x="83" y="286" width="74" height="30" rx="5"/><rect x="163" y="286" width="74" height="30" rx="5"/>
+      <rect x="243" y="286" width="74" height="30" rx="5"/><rect x="323" y="286" width="74" height="30" rx="5"/><rect x="403" y="286" width="74" height="30" rx="5"/>
+    </g>
+    <g fill="#E6EAF2" text-anchor="middle" font-weight="bold">
+      <text x="40" y="305">F1</text><text x="120" y="305">F2</text><text x="200" y="305">F3</text><text x="280" y="305">F4</text><text x="360" y="305">F5</text><text x="440" y="305">F6</text>
+    </g>
+    <text x="240" y="276" fill="#C4B5FD" text-anchor="middle">SOFT KEYS  y 282–320 · six fields of 80 px · the host presses F1–F6, no touch event</text>
+  </g>
+</svg>
